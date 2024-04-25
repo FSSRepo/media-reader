@@ -394,7 +394,6 @@
 #define HAVE_SECTION_DATA_REL_RO 1
 #define HAVE_TEXI2HTML 0
 
-// desactivado
 #define HAVE_THREADS 0
 #define HAVE_VAAPI_DRM 0
 #define HAVE_VAAPI_X11 0

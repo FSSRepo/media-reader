@@ -1,4 +1,5 @@
 #include "media-reader.h"
+#include <string>
 
 extern "C" {
 	#include <stdio.h>
@@ -33,7 +34,6 @@ static int decode_write_frame(FILE *file, AVCodecContext *avctx,
 			return len;
 		}
 		if (got_frame) {
-			printf("Got frame %d - %dx%d\n", *frame_index, frame->width, frame->height);
 			if (file) {
 				yuv_save(frame->data, frame->linesize, frame->width, frame->height, file);
 			}
@@ -45,7 +45,7 @@ static int decode_write_frame(FILE *file, AVCodecContext *avctx,
 
 
 int main(int argc, char* argv[]) {
-    if (argc == 2) {
+    if (argc > 1) {
 		MP4* mp4 = read_mp4(argv[1], false);
 		printf("mp4 file information\nresolution: %d x %d\nfps: %.2f, frames: %d\nNALU size: %d\nsequences: %zu\nduration: %.2f segs\n", mp4->width, mp4->height, mp4->fps, mp4->sample_count, mp4->nalu_length_size, mp4->sequences_nal.size(), mp4->duration * 1.0f / mp4->time_scale);
 		// {
@@ -59,68 +59,64 @@ int main(int argc, char* argv[]) {
 		//     fclose(fo);
 		// 	printf("h264 data extracted");
 		// }
-
-		// {
-		// 	FILE *outfile = fopen("output.yuv", "wb");
+		if(argc > 3 && std::string(argv[2]) == "-d") {
+			FILE *outfile = fopen(argv[3], "wb");
+			avcodec_register(&ff_h264_decoder);
+			AVCodec *codec = avcodec_find_decoder(AV_CODEC_ID_H264);
+			if (!codec) {
+				fprintf(stderr, "Codec not found\n");
+				exit(1);
+			}
+			AVCodecContext *codec_ctx = avcodec_alloc_context3(codec);
+			if (!codec_ctx) {
+				fprintf(stderr, "Could not allocate video codec context\n");
+				exit(1);
+			}
 			
-		// 	avcodec_register(&ff_h264_decoder);
-			
-		// 	AVCodec *codec = avcodec_find_decoder(AV_CODEC_ID_H264);
-		// 	if (!codec) {
-		// 		fprintf(stderr, "Codec not found\n");
-		// 		exit(1);
-		// 	}
+			if (avcodec_open2(codec_ctx, codec, NULL) < 0) {
+				fprintf(stderr, "Could not open codec\n");
+				exit(1);
+			}
 
-		// 	AVCodecContext *codec_ctx = avcodec_alloc_context3(codec);
-		// 	if (!codec_ctx) {
-		// 		fprintf(stderr, "Could not allocate video codec context\n");
-		// 		exit(1);
-		// 	}
-			
-		// 	if (avcodec_open2(codec_ctx, codec, NULL) < 0) {
-		// 		fprintf(stderr, "Could not open codec\n");
-		// 		exit(1);
-		// 	}
+			AVFrame *frame = av_frame_alloc();
+			if (!frame) {
+				fprintf(stderr, "Could not allocate video frame\n");
+				exit(1);
+			}
 
-		// 	AVFrame *frame = av_frame_alloc();
-		// 	if (!frame) {
-		// 		fprintf(stderr, "Could not allocate video frame\n");
-		// 		exit(1);
-		// 	}
+			bool add_nal_header = true;
+			data_sample sample;
+			AVPacket packet;
+			int frame_index = 0;
 
-		// 	bool add_nal_header = true;
-		// 	data_sample sample;
-		// 	AVPacket packet;
-		// 	int frame_index = 0;
+			printf("decoding ...\n");
+		    for(int s = 0; s < mp4->sample_count; s++) {
+		        read_sample(mp4, s, sample, add_nal_header);
 
-		//     for(int s = 0; s < mp4->sample_count; s++) {
-		//         read_sample(mp4, s, sample, add_nal_header);
+		        av_init_packet(&packet);
+				packet.data = sample.data;
+				packet.size = sample.size;
 
-		//         av_init_packet(&packet);
-		// 		packet.data = sample.data;
-		// 		packet.size = sample.size;
+				int ret = decode_write_frame(outfile, codec_ctx, frame, &frame_index, &packet, 0);
+				if (ret < 0) {
+					fprintf(stderr, "Decode or write frame error\n");
+					exit(1);
+				}
+		    }
 
-		// 		int ret = decode_write_frame(outfile, codec_ctx, frame, &frame_index, &packet, 0);
-		// 		if (ret < 0) {
-		// 			fprintf(stderr, "Decode or write frame error\n");
-		// 			exit(1);
-		// 		}
-		//     }
+			// Flush the decoder
+			packet.data = NULL;
+			packet.size = 0;
+			decode_write_frame(outfile, codec_ctx, frame, &frame_index, &packet, 1);
+			printf("Done");
 
-		// 	// Flush the decoder
-		// 	packet.data = NULL;
-		// 	packet.size = 0;
-		// 	decode_write_frame(outfile, codec_ctx, frame, &frame_index, &packet, 1);
+			fclose(outfile);
 
-		// 	printf("Done");
-
-		// 	fclose(outfile);
-
-		// 	avcodec_close(codec_ctx);
-		// 	av_free(codec_ctx);
-		// 	av_frame_free(&frame);
-		// }
+			avcodec_close(codec_ctx);
+			av_free(codec_ctx);
+			av_frame_free(&frame);
+		}
 	} else {
-		printf("usage: main <mp4 file path>");
+		printf("\n\nusage: main <mp4 file path> <options>\n\noptions:\n	-d <output file> : decode to yuv file");
 	}
 }
