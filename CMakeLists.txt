@@ -27,7 +27,7 @@ option(MR_BUILD_SHARED_LIBS          "mr: build shared libs" OFF)
 
 set(MR_LIB media-reader)
 
-include_directories(include)
+include_directories(include external)
 
 file(GLOB MR_LIB_SOURCES
     "include/*.h"

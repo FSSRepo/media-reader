@@ -256,122 +256,255 @@ struct MP4* read_mp4(const char* filename, bool verbose) {
     // read begin byte
     fseek(file, mp4->chunk_offsets[0] + mp4->nalu_length_size, SEEK_SET);
     fread(temporal_buffer, 1, 1, file);
-    mp4->begin_byte = temporal_buffer[0];
+    mp4->begin_payload_packet = temporal_buffer[0];
+    printf("payload: 0x%X\n", mp4->begin_payload_packet);
     return mp4;
 }
 
-void read_sample(struct MP4* mp4, int index, data_sample &sample, bool include_nal_unit) {
-        {
-            index++;
-            int chunk, skip_samples;
-            size_t group = 0;
-            while(group < mp4->samples_groups.size()) {
-                sample_group cur_group = mp4->samples_groups[group];
-                int samples_count = cur_group.chunk_count * cur_group.samples_per_chunk;
-                if(samples_count && cur_group.first_sample + samples_count <= index) {
-                    group++;
-                    continue;
-                }
-                int chunk_offset = (index - cur_group.first_sample) / cur_group.samples_per_chunk;
-                chunk = cur_group.first_chunk + chunk_offset;
-                skip_samples = index - (cur_group.first_sample + cur_group.samples_per_chunk*chunk_offset);
-                break;
+void get_sample_params(struct MP4* mp4, int index, data_sample &sample) {
+    {
+        index++;
+        int chunk, skip_samples;
+        size_t group = 0;
+        while(group < mp4->samples_groups.size()) {
+            sample_group cur_group = mp4->samples_groups[group];
+            int samples_count = cur_group.chunk_count * cur_group.samples_per_chunk;
+            if(samples_count && cur_group.first_sample + samples_count <= index) {
+                group++;
+                continue;
             }
-            int offset = mp4->chunk_offsets[chunk - 1];
-            for(int i = (index - skip_samples); i < index; i++) {
-                offset += mp4->samples_sizes[i - 1];
-            }
-            sample.offset = offset;
-            sample.size = mp4->samples_sizes[index - 1];
+            int chunk_offset = (index - cur_group.first_sample) / cur_group.samples_per_chunk;
+            chunk = cur_group.first_chunk + chunk_offset;
+            skip_samples = index - (cur_group.first_sample + cur_group.samples_per_chunk*chunk_offset);
+            break;
         }
-        fseek(mp4->file, sample.offset, SEEK_SET);
-        if(include_nal_unit) {
-            int offset = 0;
-            int packet_size = 0;
+        int offset = mp4->chunk_offsets[chunk - 1];
+        for(int i = (index - skip_samples); i < index; i++) {
+            offset += mp4->samples_sizes[i - 1];
+        }
+        sample.offset = offset;
+        sample.size = mp4->samples_sizes[index - 1];
+    }
+}
 
-            // calculate NAL packet size
-            while(offset < sample.size) {
-                int nalu_size = 0;
-                fread(mp4->tmp_buffer, 1, mp4->nalu_length_size, mp4->file);
-                if(mp4->nalu_length_size == 4) {
-                    nalu_size = readUint(mp4->tmp_buffer);
-                } else if(mp4->nalu_length_size == 2) {
-                    nalu_size = readUint16(mp4->tmp_buffer);
-                }
-                offset += mp4->nalu_length_size;
-                fread(mp4->tmp_buffer, 1, 1, mp4->file);
-                if(mp4->tmp_buffer[0] == mp4->begin_byte) {
-                    for(int i = 0; i < mp4->sequences_nal.size(); i++) {
-                        packet_size += (mp4->sequences_nal[i].size + 4);
-                    }
-                    for(int i = 0; i < mp4->pictures_nal.size(); i++) {
-                        packet_size += (mp4->pictures_nal[i].size + 4);
-                    }
-                    packet_size += 3;
-                } else {
-                    packet_size += (offset == mp4->nalu_length_size ? 4 : 3);
-                }
-                if(nalu_size - 1 > 0) {
-                    fseek(mp4->file, nalu_size - 1, SEEK_CUR);
-                }
-                offset += nalu_size;
-                packet_size += nalu_size;
-            }
-            // build NAL packet
-            sample.data = (uint8_t*)malloc(packet_size);
-            int packet_offset = 0;
-            offset = 0;
-            fseek(mp4->file, sample.offset, SEEK_SET);
-            while(offset < sample.size) {
-                int nalu_size = 0;
-                fread(mp4->tmp_buffer, 1, mp4->nalu_length_size, mp4->file);
-                if(mp4->nalu_length_size == 4) {
-                    nalu_size = readUint(mp4->tmp_buffer);
-                } else if(mp4->nalu_length_size == 2) {
-                    nalu_size = readUint16(mp4->tmp_buffer);
-                }
-                offset += mp4->nalu_length_size;
-                fread(mp4->tmp_buffer, 1, 1, mp4->file);
-                fseek(mp4->file, sample.offset + offset, SEEK_SET);
-                if(mp4->tmp_buffer[0] == mp4->begin_byte) {
-                    for(int i = 0; i < mp4->sequences_nal.size(); i++) {
-                        nal_chunk chunk = mp4->sequences_nal[i];
-                        memcpy(&sample.data[packet_offset], &mp4->nal_head, 4);
-                        packet_offset += 4;
-                        memcpy(&sample.data[packet_offset], chunk.data, chunk.size);
-                        packet_offset += chunk.size;
-                    }
-                    for(int i = 0; i < mp4->pictures_nal.size(); i++) {
-                        nal_chunk chunk = mp4->pictures_nal[i];
-                        memcpy(&sample.data[packet_offset], &mp4->nal_head, 4);
-                        packet_offset += 4;
-                        memcpy(&sample.data[packet_offset], chunk.data, chunk.size);
-                        packet_offset += chunk.size;
-                    }
-                    memcpy(&sample.data[packet_offset], &mp4->nal_body, 3);
-                    packet_offset += 3;
-                } else {
-                    if(offset == mp4->nalu_length_size) {
-                        memcpy(&sample.data[packet_offset], &mp4->nal_head, 4);
-                        packet_offset += 4;
-                    } else {
-                        memcpy(&sample.data[packet_offset], &mp4->nal_body, 3);
-                        packet_offset += 3;
-                    }
-                }
-                fread(&sample.data[packet_offset], 1, nalu_size, mp4->file);
-                offset += nalu_size;
-                packet_offset += nalu_size;
-            }
-            sample.size = packet_size;
-        } else {
-            if(!sample.data) {
-                sample.data = new uint8_t[sample.size];
-            }
-            fread(sample.data, 1, sample.size, mp4->file);
+
+void find_nearest_key_frame(struct MP4* mp4, int index, int* result) {
+    *result = -1;
+    data_sample sample;
+
+    // backward pass
+    for(int i = index; i >= 0; i--) {
+        get_sample_params(mp4, i, sample);
+        fseek(mp4->file, sample.offset + mp4->nalu_length_size, SEEK_SET);
+        fread(mp4->tmp_buffer, 1, 1, mp4->file);
+        if(mp4->tmp_buffer[0] == mp4->begin_payload_packet) {
+            *result = i;
+            break;
         }
     }
+}
 
-void yuv2rgb(uint8_t* yuv, uint8_t* rgb, int width, int height) {
+void read_sample(struct MP4* mp4, int index, data_sample &sample, bool include_nal_unit) {
+    get_sample_params(mp4, index, sample);
+    fseek(mp4->file, sample.offset, SEEK_SET);
+    if(include_nal_unit) {
+        int offset = 0;
+        int packet_size = 0;
 
+        // calculate NAL packet size
+        while(offset < sample.size) {
+            int nalu_size = 0;
+            fread(mp4->tmp_buffer, 1, mp4->nalu_length_size, mp4->file);
+            if(mp4->nalu_length_size == 4) {
+                nalu_size = readUint(mp4->tmp_buffer);
+            } else if(mp4->nalu_length_size == 2) {
+                nalu_size = readUint16(mp4->tmp_buffer);
+            }
+            offset += mp4->nalu_length_size;
+            fread(mp4->tmp_buffer, 1, 1, mp4->file);
+            if(mp4->tmp_buffer[0] == mp4->begin_payload_packet) {
+                for(int i = 0; i < mp4->sequences_nal.size(); i++) {
+                    packet_size += (mp4->sequences_nal[i].size + 4);
+                }
+                for(int i = 0; i < mp4->pictures_nal.size(); i++) {
+                    packet_size += (mp4->pictures_nal[i].size + 4);
+                }
+                packet_size += 3;
+            } else {
+                packet_size += (offset == mp4->nalu_length_size ? 4 : 3);
+            }
+            if(nalu_size - 1 > 0) {
+                fseek(mp4->file, nalu_size - 1, SEEK_CUR);
+            }
+            offset += nalu_size;
+            packet_size += nalu_size;
+        }
+        // build NAL packet
+        sample.data = (uint8_t*)malloc(packet_size);
+        int packet_offset = 0;
+        offset = 0;
+        fseek(mp4->file, sample.offset, SEEK_SET);
+        while(offset < sample.size) {
+            int nalu_size = 0;
+            fread(mp4->tmp_buffer, 1, mp4->nalu_length_size, mp4->file);
+            if(mp4->nalu_length_size == 4) {
+                nalu_size = readUint(mp4->tmp_buffer);
+            } else if(mp4->nalu_length_size == 2) {
+                nalu_size = readUint16(mp4->tmp_buffer);
+            }
+            offset += mp4->nalu_length_size;
+            fread(mp4->tmp_buffer, 1, 1, mp4->file);
+            fseek(mp4->file, sample.offset + offset, SEEK_SET);
+            if(mp4->tmp_buffer[0] == mp4->begin_payload_packet) {
+                for(int i = 0; i < mp4->sequences_nal.size(); i++) {
+                    nal_chunk chunk = mp4->sequences_nal[i];
+                    memcpy(&sample.data[packet_offset], &mp4->nal_head, 4);
+                    packet_offset += 4;
+                    memcpy(&sample.data[packet_offset], chunk.data, chunk.size);
+                    packet_offset += chunk.size;
+                }
+                for(int i = 0; i < mp4->pictures_nal.size(); i++) {
+                    nal_chunk chunk = mp4->pictures_nal[i];
+                    memcpy(&sample.data[packet_offset], &mp4->nal_head, 4);
+                    packet_offset += 4;
+                    memcpy(&sample.data[packet_offset], chunk.data, chunk.size);
+                    packet_offset += chunk.size;
+                }
+                memcpy(&sample.data[packet_offset], &mp4->nal_body, 3);
+                packet_offset += 3;
+            } else {
+                if(offset == mp4->nalu_length_size) {
+                    memcpy(&sample.data[packet_offset], &mp4->nal_head, 4);
+                    packet_offset += 4;
+                } else {
+                    memcpy(&sample.data[packet_offset], &mp4->nal_body, 3);
+                    packet_offset += 3;
+                }
+            }
+            fread(&sample.data[packet_offset], 1, nalu_size, mp4->file);
+            offset += nalu_size;
+            packet_offset += nalu_size;
+        }
+        sample.size = packet_size;
+    } else {
+        if(!sample.data) {
+            sample.data = new uint8_t[sample.size];
+        }
+        fread(sample.data, 1, sample.size, mp4->file);
+    }
+}
+
+int clamp(int x, int min, int max) {
+    return x > max ? max : (x < min ? min : x);
+}
+
+// yuv I420 -> RGB888
+void yuv420rgb(uint8_t* yuv, uint8_t* rgb, int width, int height) {
+    // yuv I420 layout [y: [width*height], u: [width/2 * height/2], v: [width/2 * height/2]]
+    // u, v need upsample (bilinear?)
+    int width_half = (width / 2), height_half = (height / 2);
+
+    uint8_t* y_p = yuv;
+    uint8_t* u_p = yuv + width * height;
+    uint8_t* v_p = u_p + width_half * height_half;
+
+    int uv_x = 1;
+
+    float mat[9] = {
+            1.0f, 0.0f, 1.402f,
+            1.0f, -0.34414f, -0.71414f,
+            1.0f, 1.772f, 0.0f };
+    
+    int uv_offset = 128;
+    int rgb_offset = 0;
+    uint8_t* u_p1 = u_p + width_half;
+    uint8_t* v_p1 = v_p + width_half;
+
+    for(int y = 0; y < height; y++) {
+        bool y0 = (y - 1) % 2 == 0;
+
+        for(int x = 0; x < width; x++) {
+            int lum = y_p[y * width + x];
+            int u = 0;
+            int v = 0;
+            bool x0 = (x - 1) % 2 == 0;
+
+            // inplace middle bilinear upscale x4
+            if(y == 0 || y == height - 1) {
+                if(x == 0) {
+                    u = u_p[0];
+                    v = v_p[0];
+                    uv_x = 1;
+                } else {
+                    if(x == width - 1) {
+                        u = u_p[width_half - 1];
+                        v = v_p[width_half - 1];
+                    } else if(x0) {
+                        u = (u_p[uv_x - 1] * 3 + u_p[uv_x]) / 4;
+                        v = (v_p[uv_x - 1] * 3 + v_p[uv_x]) / 4;
+                    } else {
+                        u = (u_p[uv_x - 1] + u_p[uv_x] * 3) / 4;
+                        v = (v_p[uv_x - 1] + v_p[uv_x] * 3) / 4;
+                        uv_x ++;
+                    }
+                }
+            } else {
+                if(x == 0) {
+                    if(y0) {
+                        u = (u_p[0] * 3 + u_p1[1]) / 4;
+                        v = (v_p[0] * 3 + v_p1[1]) / 4;
+                    } else {
+                        u = (u_p[0] + u_p1[1] * 3) / 4;
+                        v = (v_p[0] + v_p1[1] * 3) / 4;
+                    }
+                    uv_x = 1;
+                } else if(x < width - 1) {
+                    if(y0) {
+                        if(x0) {
+                            u = (u_p[uv_x - 1] * 9 + u_p[uv_x] * 3 + u_p1[uv_x - 1] * 3 + u_p1[uv_x]) / 16;
+                            v = (v_p[uv_x - 1] * 9 + v_p[uv_x] * 3 + v_p1[uv_x - 1] * 3 + v_p1[uv_x]) / 16;
+                        } else {
+                            u = (u_p[uv_x - 1] * 3 + u_p[uv_x] * 9 + u_p1[uv_x - 1] + u_p1[uv_x] * 3) / 16;
+                            v = (v_p[uv_x - 1] * 3 + v_p[uv_x] * 9 + v_p1[uv_x - 1] + v_p1[uv_x] * 3) / 16;
+                            uv_x ++;
+                        }
+                    } else {
+                        if(x0) {
+                            u = (u_p[uv_x - 1] * 3 + u_p[uv_x] + u_p1[uv_x - 1] * 9 + u_p1[uv_x] * 3) / 16;
+                            v = (v_p[uv_x - 1] * 3 + v_p[uv_x] + v_p1[uv_x - 1] * 9 + v_p1[uv_x] * 3) / 16;
+                        } else {
+                            u = (u_p[uv_x - 1] + u_p[uv_x] * 3 + u_p1[uv_x - 1] * 3 + u_p1[uv_x] * 9) / 16;
+                            v = (v_p[uv_x - 1] + v_p[uv_x] * 3 + v_p1[uv_x - 1] * 3 + v_p1[uv_x] * 9) / 16;
+                            uv_x ++;
+                        }
+                    }
+                } else {
+                    int end = width_half - 1;
+                    if(y0) {
+                        u = (u_p[end] * 3 + u_p1[end]) / 4;
+                        v = (v_p[end] * 3 + v_p1[end]) / 4;
+                    } else {
+                        u = (u_p[end] + u_p1[end] * 3) / 4;
+                        v = (v_p[end] + v_p1[end] * 3) / 4;
+                        u_p += width_half;
+                        v_p += width_half;
+                        u_p1 += width_half;
+                        v_p1 += width_half;
+                    }
+                }
+            }
+
+            u -= uv_offset;
+            v -= uv_offset;
+
+            int r = (int)(mat[0] * lum + mat[1] * u + mat[2] * v);
+            int g = (int)(mat[3] * lum + mat[4] * u + mat[5] * v);
+            int b = (int)(mat[6] * lum + mat[7] * u + mat[8] * v);
+
+            rgb[rgb_offset] =     clamp(r, 0, 255);
+            rgb[rgb_offset + 1] = clamp(g, 0, 255);
+            rgb[rgb_offset + 2] = clamp(b, 0, 255);
+            rgb_offset += 3;
+        }
+    }
 }

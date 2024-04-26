@@ -36,7 +36,7 @@ struct MP4 {
     std::vector<nal_chunk> sequences_nal;
     std::vector<nal_chunk> pictures_nal;
     int nalu_length_size;
-    uint8_t begin_byte;
+    uint8_t begin_payload_packet;
 
     FILE* file;
     uint8_t* tmp_buffer = new uint8_t[4];
@@ -45,4 +45,6 @@ struct MP4 {
 };
 
 struct MP4* read_mp4(const char* filename, bool verbose);
+void find_nearest_key_frame(struct MP4* mp4, int index, int* result);
 void read_sample(struct MP4* mp4, int index, data_sample &sample, bool include_nal_unit);
+void yuv420rgb(uint8_t* yuv, uint8_t* rgb, int width, int height);
