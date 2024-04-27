@@ -26,8 +26,6 @@
 #include "hpel_template.c"
 #include "pel_template.c"
 
-#define pixeltmp int32_t
-
 static inline void FUNC(copy_block2)(uint8_t *dst, const uint8_t *src, int dstStride, int srcStride, int h)
 {
     int i;

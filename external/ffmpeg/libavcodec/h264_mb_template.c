@@ -30,12 +30,6 @@
 #   define PIXEL_SHIFT h->pixel_shift
 #endif
 
-#ifdef SIMPLE
-#define SIMPLE_BOOL 1
-#else
-#define SIMPLE_BOOL 0
-#endif
-
 #undef  CHROMA_IDC
 #define CHROMA_IDC 1
 #include "h264_mc_template.c"
@@ -54,7 +48,7 @@ static av_noinline void FUNC(hl_decode_mb)(const H264Context *h, H264SliceContex
     int linesize, uvlinesize /*dct_offset*/;
     int i, j;
     const int *block_offset = &h->block_offset[0];
-    const int transform_bypass = !SIMPLE_BOOL && (sl->qscale == 0 && h->sps.transform_bypass);
+    const int transform_bypass = !SIMPLE && (sl->qscale == 0 && h->sps.transform_bypass);
     void (*idct_add)(uint8_t *dst, int16_t *block, int stride);
     const int block_h   = 16 >> h->chroma_y_shift;
     const int chroma422 = CHROMA422(h);
@@ -68,7 +62,7 @@ static av_noinline void FUNC(hl_decode_mb)(const H264Context *h, H264SliceContex
 
     h->list_counts[mb_xy] = sl->list_count;
 
-    if (!SIMPLE_BOOL && MB_FIELD(sl)) {
+    if (!SIMPLE && MB_FIELD(sl)) {
         linesize     = sl->mb_linesize = sl->linesize * 2;
         uvlinesize   = sl->mb_uvlinesize = sl->uvlinesize * 2;
         block_offset = &h->block_offset[48];
@@ -101,7 +95,7 @@ static av_noinline void FUNC(hl_decode_mb)(const H264Context *h, H264SliceContex
         // dct_offset = s->linesize * 16;
     }
 
-    if (!SIMPLE_BOOL && IS_INTRA_PCM(mb_type)) {
+    if (!SIMPLE && IS_INTRA_PCM(mb_type)) {
         const int bit_depth = h->sps.bit_depth_luma;
         if (PIXEL_SHIFT) {
             int j;
@@ -114,7 +108,7 @@ static av_noinline void FUNC(hl_decode_mb)(const H264Context *h, H264SliceContex
                 for (j = 0; j < 16; j++)
                     tmp_y[j] = get_bits(&gb, bit_depth);
             }
-            if (SIMPLE_BOOL || !CONFIG_GRAY || !(h->flags & AV_CODEC_FLAG_GRAY)) {
+            if (SIMPLE || !CONFIG_GRAY || !(h->flags & AV_CODEC_FLAG_GRAY)) {
                 if (!h->sps.chroma_format_idc) {
                     for (i = 0; i < block_h; i++) {
                         uint16_t *tmp_cb = (uint16_t *)(dest_cb + i * uvlinesize);
@@ -139,7 +133,7 @@ static av_noinline void FUNC(hl_decode_mb)(const H264Context *h, H264SliceContex
         } else {
             for (i = 0; i < 16; i++)
                 memcpy(dest_y + i * linesize, sl->intra_pcm_ptr + i * 16, 16);
-            if (SIMPLE_BOOL || !CONFIG_GRAY || !(h->flags & AV_CODEC_FLAG_GRAY)) {
+            if (SIMPLE || !CONFIG_GRAY || !(h->flags & AV_CODEC_FLAG_GRAY)) {
                 if (!h->sps.chroma_format_idc) {
                     for (i = 0; i < 8; i++) {
                         memset(dest_cb + i * uvlinesize, 1 << (bit_depth - 1), 8);
@@ -159,20 +153,20 @@ static av_noinline void FUNC(hl_decode_mb)(const H264Context *h, H264SliceContex
         if (IS_INTRA(mb_type)) {
             if (sl->deblocking_filter)
                 xchg_mb_border(h, sl, dest_y, dest_cb, dest_cr, linesize,
-                               uvlinesize, 1, 0, SIMPLE_BOOL, PIXEL_SHIFT);
+                               uvlinesize, 1, 0, SIMPLE, PIXEL_SHIFT);
 
-            if (SIMPLE_BOOL || !CONFIG_GRAY || !(h->flags & AV_CODEC_FLAG_GRAY)) {
+            if (SIMPLE || !CONFIG_GRAY || !(h->flags & AV_CODEC_FLAG_GRAY)) {
                 h->hpc.pred8x8[sl->chroma_pred_mode](dest_cb, uvlinesize);
                 h->hpc.pred8x8[sl->chroma_pred_mode](dest_cr, uvlinesize);
             }
 
-            hl_decode_mb_predict_luma(h, sl, mb_type, SIMPLE_BOOL,
+            hl_decode_mb_predict_luma(h, sl, mb_type, SIMPLE,
                                       transform_bypass, PIXEL_SHIFT,
                                       block_offset, linesize, dest_y, 0);
 
             if (sl->deblocking_filter)
                 xchg_mb_border(h, sl, dest_y, dest_cb, dest_cr, linesize,
-                               uvlinesize, 0, 0, SIMPLE_BOOL, PIXEL_SHIFT);
+                               uvlinesize, 0, 0, SIMPLE, PIXEL_SHIFT);
         } else {
             if (chroma422) {
                 FUNC(hl_motion_422)(h, sl, dest_y, dest_cb, dest_cr,
@@ -189,10 +183,10 @@ static av_noinline void FUNC(hl_decode_mb)(const H264Context *h, H264SliceContex
             }
         }
 
-        hl_decode_mb_idct_luma(h, sl, mb_type, SIMPLE_BOOL, transform_bypass,
+        hl_decode_mb_idct_luma(h, sl, mb_type, SIMPLE, transform_bypass,
                                PIXEL_SHIFT, block_offset, linesize, dest_y, 0);
 
-        if ((SIMPLE_BOOL || !CONFIG_GRAY || !(h->flags & AV_CODEC_FLAG_GRAY)) &&
+        if ((SIMPLE || !CONFIG_GRAY || !(h->flags & AV_CODEC_FLAG_GRAY)) &&
             (sl->cbp & 0x30)) {
             uint8_t *dest[2] = { dest_cb, dest_cr };
             if (transform_bypass) {
@@ -265,8 +259,8 @@ static av_noinline void FUNC(hl_decode_mb_444)(const H264Context *h, H264SliceCo
     int linesize;
     int i, j, p;
     const int *block_offset = &h->block_offset[0];
-    const int transform_bypass = !SIMPLE_BOOL && (sl->qscale == 0 && h->sps.transform_bypass);
-    const int plane_count      = (SIMPLE_BOOL || !CONFIG_GRAY || !(h->flags & AV_CODEC_FLAG_GRAY)) ? 3 : 1;
+    const int transform_bypass = !SIMPLE && (sl->qscale == 0 && h->sps.transform_bypass);
+    const int plane_count      = (SIMPLE || !CONFIG_GRAY || !(h->flags & AV_CODEC_FLAG_GRAY)) ? 3 : 1;
 
     for (p = 0; p < plane_count; p++) {
         dest[p] = h->cur_pic.f->data[p] +
@@ -277,7 +271,7 @@ static av_noinline void FUNC(hl_decode_mb_444)(const H264Context *h, H264SliceCo
 
     h->list_counts[mb_xy] = sl->list_count;
 
-    if (!SIMPLE_BOOL && MB_FIELD(sl)) {
+    if (!SIMPLE && MB_FIELD(sl)) {
         linesize     = sl->mb_linesize = sl->mb_uvlinesize = sl->linesize * 2;
         block_offset = &h->block_offset[48];
         if (mb_y & 1) // FIXME move out of this function?
@@ -305,7 +299,7 @@ static av_noinline void FUNC(hl_decode_mb_444)(const H264Context *h, H264SliceCo
         linesize = sl->mb_linesize = sl->mb_uvlinesize = sl->linesize;
     }
 
-    if (!SIMPLE_BOOL && IS_INTRA_PCM(mb_type)) {
+    if (!SIMPLE && IS_INTRA_PCM(mb_type)) {
         if (PIXEL_SHIFT) {
             const int bit_depth = h->sps.bit_depth_luma;
             GetBitContext gb;
@@ -327,16 +321,16 @@ static av_noinline void FUNC(hl_decode_mb_444)(const H264Context *h, H264SliceCo
         if (IS_INTRA(mb_type)) {
             if (sl->deblocking_filter)
                 xchg_mb_border(h, sl, dest[0], dest[1], dest[2], linesize,
-                               linesize, 1, 1, SIMPLE_BOOL, PIXEL_SHIFT);
+                               linesize, 1, 1, SIMPLE, PIXEL_SHIFT);
 
             for (p = 0; p < plane_count; p++)
-                hl_decode_mb_predict_luma(h, sl, mb_type, SIMPLE_BOOL,
+                hl_decode_mb_predict_luma(h, sl, mb_type, SIMPLE,
                                           transform_bypass, PIXEL_SHIFT,
                                           block_offset, linesize, dest[p], p);
 
             if (sl->deblocking_filter)
                 xchg_mb_border(h, sl, dest[0], dest[1], dest[2], linesize,
-                               linesize, 0, 1, SIMPLE_BOOL, PIXEL_SHIFT);
+                               linesize, 0, 1, SIMPLE, PIXEL_SHIFT);
         } else {
             FUNC(hl_motion_444)(h, sl, dest[0], dest[1], dest[2],
                       h->qpel_put, h->h264chroma.put_h264_chroma_pixels_tab,
@@ -346,7 +340,7 @@ static av_noinline void FUNC(hl_decode_mb_444)(const H264Context *h, H264SliceCo
         }
 
         for (p = 0; p < plane_count; p++)
-            hl_decode_mb_idct_luma(h, sl, mb_type, SIMPLE_BOOL, transform_bypass,
+            hl_decode_mb_idct_luma(h, sl, mb_type, SIMPLE, transform_bypass,
                                    PIXEL_SHIFT, block_offset, linesize,
                                    dest[p], p);
     }

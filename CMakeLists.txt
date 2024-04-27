@@ -55,9 +55,7 @@ add_subdirectory(external/ffmpeg)
 # h.265 encoder, decoder from https://github.com/strukturag/libde265
 add_subdirectory(external/libde265)
 
-if(MSVC)
-    set(ADDITIONAL_LIBDE265_INCLUDES external/libde265/extra)
-endif()
+set(ADDITIONAL_LIBDE265_INCLUDES external/libde265/extra)
 
 target_link_libraries(${MR_LIB} PUBLIC ffmpeg-codec)
 target_include_directories(${MR_LIB} PUBLIC . external/ffmpeg external/libde265/libde265 ${ADDITIONAL_LIBDE265_INCLUDES})

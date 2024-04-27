@@ -787,9 +787,11 @@ static av_always_inline void hl_decode_mb_idct_luma(const H264Context *h, H264Sl
 #define SIMPLE 1
 #include "h264_mb_template.c"
 
+#undef  BITS
 #define BITS   16
 #include "h264_mb_template.c"
 
+#undef  SIMPLE
 #define SIMPLE 0
 #include "h264_mb_template.c"
 

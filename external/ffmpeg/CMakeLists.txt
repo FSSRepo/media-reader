@@ -3,7 +3,6 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 add_library(${TARGET}
     libavcodec/avpacket.c
-    libavcodec/bit_depth_template.c
     libavcodec/bitstream.c
     libavcodec/cabac.c
     libavcodec/codec_desc.c
@@ -14,7 +13,6 @@ add_library(${TARGET}
     libavcodec/h264_direct.c
     libavcodec/h264_loopfilter.c
     libavcodec/h264_mb.c
-    libavcodec/h264_mb_template.c
     libavcodec/h264_loopfilter.c
     libavcodec/h264_parse.c
     libavcodec/h264_parser.c
@@ -24,28 +22,20 @@ add_library(${TARGET}
     libavcodec/h264_sei.c
     libavcodec/h264_slice.c
     libavcodec/h264.c
-    libavcodec/h264addpx_template.c
-    libavcodec/h264chroma_template.c
     libavcodec/h264chroma.c
     libavcodec/h264data.c
-    libavcodec/h264dsp_template.c
     libavcodec/h264dsp.c
-    libavcodec/h264idct_template.c
     libavcodec/h264idct.c
-    libavcodec/h264pred_template.c
     libavcodec/h264pred.c
-    libavcodec/h264qpel_template.c
     libavcodec/h264qpel.c
     libavcodec/h2645_parse.c
-    libavcodec/hpel_template.c
     libavcodec/mathtables.c
     libavcodec/me_cmp.c
     libavcodec/options.c
     libavcodec/parser.c
-    libavcodec/pel_template.c
     libavcodec/profiles.c
-    libavcodec/simple_idct_template.c
     libavcodec/startcode.c
+    libavcodec/simple_idct.c
     libavcodec/utils.c
     libavcodec/videodsp.c
     

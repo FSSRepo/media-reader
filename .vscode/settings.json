@@ -66,6 +66,8 @@
         "xlocmon": "cpp",
         "xlocnum": "cpp",
         "xloctime": "cpp",
-        "*.in": "c"
+        "*.in": "c",
+        "h264idct.h": "c",
+        "stdint.h": "c"
     }
 }

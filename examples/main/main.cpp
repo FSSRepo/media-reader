@@ -45,6 +45,7 @@ static int decode_write_frame(FILE *file, AVCodecContext *avctx,
 			if (file && *frame_index >= write_start) {
 				yuv_save(frame->data, frame->linesize, frame->width, frame->height, file);
 			}
+			printf("decoding %d\n", *frame_index);
 			(*frame_index)++;
 		}
 	} while (flush && got_frame);
@@ -129,7 +130,6 @@ int main(int argc, char* argv[]) {
 					int frame_index = nearest_packet_frame;
 
 					for(int s = nearest_packet_frame; s < (frame_start + frame_count); s++) {
-						printf("decoding %d\n", frame_index);
 						mp4_read_video_sample(mp4, video_track, s, sample, add_nal_header);
 
 						av_init_packet(&packet);
