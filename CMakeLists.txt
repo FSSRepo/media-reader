@@ -49,10 +49,18 @@ else()
     add_library(${MR_LIB} STATIC ${MR_LIB_SOURCES})
 endif()
 
+# h.264 decoder from https://github.com/FFmpeg/FFmpeg
 add_subdirectory(external/ffmpeg)
 
+# h.265 encoder, decoder from https://github.com/strukturag/libde265
+add_subdirectory(external/libde265)
+
+if(MSVC)
+    set(ADDITIONAL_LIBDE265_INCLUDES external/libde265/extra)
+endif()
+
 target_link_libraries(${MR_LIB} PUBLIC ffmpeg-codec)
-target_include_directories(${MR_LIB} PUBLIC . external/ffmpeg)
+target_include_directories(${MR_LIB} PUBLIC . external/ffmpeg external/libde265/libde265 ${ADDITIONAL_LIBDE265_INCLUDES})
 target_compile_features(${MR_LIB} PUBLIC cxx_std_11)
 
 if (MR_BUILD_EXAMPLES)
