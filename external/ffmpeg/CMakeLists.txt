@@ -1,4 +1,4 @@
-set(TARGET ffmpeg-codec)
+set(TARGET h264)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 add_library(${TARGET}
@@ -35,14 +35,18 @@ add_library(${TARGET}
     libavcodec/parser.c
     libavcodec/profiles.c
     libavcodec/startcode.c
+    libavcodec/pthread_frame.c
+    libavcodec/pthread.c
+    libavcodec/pthread_slice.c
     libavcodec/simple_idct.c
     libavcodec/utils.c
     libavcodec/videodsp.c
-    
+
     libavutil/avstring.c
     libavutil/bprint.c
     libavutil/buffer.c
     libavutil/channel_layout.c
+    libavutil/cpu.c
     libavutil/dict.c
     libavutil/display.c
     libavutil/error.c

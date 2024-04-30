@@ -27,11 +27,12 @@ option(MR_BUILD_SHARED_LIBS          "mr: build shared libs" OFF)
 
 set(MR_LIB media-reader)
 
-include_directories(include external)
+include_directories(include external src)
 
 file(GLOB MR_LIB_SOURCES
     "include/*.h"
     "src/*.cpp"
+    "src/mp3/*.cpp"
 )
 
 # we can get only one share lib
@@ -57,7 +58,7 @@ add_subdirectory(external/libde265)
 
 set(ADDITIONAL_LIBDE265_INCLUDES external/libde265/extra)
 
-target_link_libraries(${MR_LIB} PUBLIC ffmpeg-codec)
+target_link_libraries(${MR_LIB} PUBLIC h264)
 target_include_directories(${MR_LIB} PUBLIC . external/ffmpeg external/libde265/libde265 ${ADDITIONAL_LIBDE265_INCLUDES})
 target_compile_features(${MR_LIB} PUBLIC cxx_std_11)
 

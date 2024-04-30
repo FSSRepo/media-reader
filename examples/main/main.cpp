@@ -30,7 +30,6 @@ static void yuv_save(unsigned char *buf[], int wrap[], int xsize, int ysize, FIL
 	}
 }
 
-
 static int decode_write_frame(FILE *file, AVCodecContext *avctx,
 							AVFrame *frame, int *frame_index, AVPacket *pkt, int flush, int write_start)
 {
@@ -57,8 +56,9 @@ void print_usage() {
 }
 
 int main(int argc, char* argv[]) {
+	// mp3_open("D:\\proyectos\\OpenMP3-master\\build\\bin\\Release\\test2.mp3");
     if (argc > 1) {
-		mp4_file* mp4 = mp4_open(argv[1], true);
+		mp4_file* mp4 = mp4_open(argv[1], false);
 		printf("MP4 file information\n");
 		for(mp4_track track : mp4->tracks) {
 			if(track.type == VIDEO_TRACK) {

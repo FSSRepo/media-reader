@@ -4,9 +4,10 @@ You can parse mp4 videos (h.264) and get the frames in a rgb buffer and parse mp
 
 # External Libraries
 
- - ffmpeg h.264 decoder part
+ - h264: decoder part from [ffmpeg](https://github.com/FFmpeg/FFmpeg)
+ - [libdec265](https://github.com/strukturag/libde265)
+ - stb_image writer
 
 # Limitations
 
- - No multithreaded
- - Just h.264 videos are supported
+ - Just h.264 and h.265 videos are supported

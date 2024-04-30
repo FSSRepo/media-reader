@@ -14,6 +14,22 @@
 #define HAVE_NANOSLEEP 1
 #endif
 
+#ifdef _WIN32
+#define HAVE_W32THREADS 1
+#define HAVE_SYS_PARAM_H 0
+#define HAVE_SYSCTL 0
+#define HAVE_WINRT 1
+#else
+#define HAVE_W32THREADS 0
+#define HAVE_SYS_PARAM_H 1
+#define HAVE_SYSCTL 1
+#define HAVE_WINRT 0
+#endif
+
+#define HAVE_SYSCTL 0
+#define HAVE_SCHED_GETAFFINITY 1
+#define HAVE_THREADS 1
+
 #define FFMPEG_CONFIGURATION "--disable-asm --disable-pthreads --disable-doc --disable-encoders --disable-muxers --disable-decoders --enable-decoder=h264 --disable-parsers --enable-parser=h264 --disable-demuxers --enable-demuxer=h264 --disable-filters --disable-programs --enable-ffmpeg"
 #define FFMPEG_LICENSE "LGPL version 2.1 or later"
 #define CONFIG_THIS_YEAR 2016
@@ -74,7 +90,7 @@
 #define HAVE_FMA4 0
 #define HAVE_MMX 0
 #define HAVE_MMXEXT 0
-#define HAVE_SSE 0
+#define HAVE_SSE 1
 #define HAVE_SSE2 0
 #define HAVE_SSE3 0
 #define HAVE_SSE4 0
@@ -244,7 +260,7 @@
 #define HAVE_SNDIO_H 0
 #define HAVE_SOUNDCARD_H 0
 #define HAVE_SYS_MMAN_H 1
-#define HAVE_SYS_PARAM_H 1
+
 #define HAVE_SYS_RESOURCE_H 1
 #define HAVE_SYS_SELECT_H 1
 #define HAVE_SYS_SOUNDCARD_H 1
@@ -327,7 +343,7 @@
 #define HAVE_PEEKNAMEDPIPE 0
 #define HAVE_POSIX_MEMALIGN 0
 #define HAVE_PTHREAD_CANCEL 0
-#define HAVE_SCHED_GETAFFINITY 1
+
 #define HAVE_SETCONSOLETEXTATTRIBUTE 0
 #define HAVE_SETCONSOLECTRLHANDLER 0
 #define HAVE_SETMODE 0
@@ -335,14 +351,14 @@
 #define HAVE_SLEEP 0
 #define HAVE_STRERROR_R 0
 #define HAVE_SYSCONF 1
-#define HAVE_SYSCTL 1
+
 
 #define HAVE_UTGETOSTYPEFROMSTRING 0
 #define HAVE_VIRTUALALLOC 0
 #define HAVE_WGLGETPROCADDRESS 0
 #define HAVE_PTHREADS 0
 #define HAVE_OS2THREADS 0
-#define HAVE_W32THREADS 0
+
 #define HAVE_AS_DN_DIRECTIVE 0
 #define HAVE_AS_FUNC 0
 #define HAVE_AS_OBJECT_ARCH 0
@@ -394,11 +410,10 @@
 #define HAVE_SECTION_DATA_REL_RO 1
 #define HAVE_TEXI2HTML 0
 
-#define HAVE_THREADS 0
 #define HAVE_VAAPI_DRM 0
 #define HAVE_VAAPI_X11 0
 #define HAVE_VDPAU_X11 0
-#define HAVE_WINRT 0
+
 #define HAVE_XLIB 1
 #define CONFIG_BSFS 1
 #define CONFIG_DECODERS 1
