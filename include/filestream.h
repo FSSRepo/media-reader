@@ -28,6 +28,7 @@ struct file_stream {
 
     void set(int pos) {
         fseek(file, pos, SEEK_SET);
+        count = pos;
     }
 
     bool end_of_file(int attempt_to_read) {

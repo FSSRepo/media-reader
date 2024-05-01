@@ -85,4 +85,6 @@ void mp4_nearest_iframe(struct mp4_file* mp4, struct mp4_track* track, int index
 void mp4_read_video_sample(struct mp4_file* mp4, struct mp4_track* track, int index, mp4_sample &sample, bool include_nal_unit);
 struct mp4_track* mp4_get_track(struct mp4_file* mp4, mp4_track_type type);
 
+void mp4_free_sample(mp4_sample &sample);
+
 #endif // __MP4_H__

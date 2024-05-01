@@ -5,16 +5,12 @@ int clamp(int x, int min, int max) {
     return x > max ? max : (x < min ? min : x);
 }
 
+
 // yuv I420 -> RGB888
-void yuv420rgb(uint8_t* yuv, uint8_t* rgb, int width, int height) {
+void yuv420rgb_multi_buffer(const uint8_t* y_p, const uint8_t* u_p, const uint8_t* v_p, uint8_t* rgb, int width, int height) {
     // yuv I420 layout [y: [width*height], u: [width/2 * height/2], v: [width/2 * height/2]]
     // u, v need upsample (bilinear?)
     int width_half = (width / 2), height_half = (height / 2);
-
-    uint8_t* y_p = yuv;
-    uint8_t* u_p = yuv + width * height;
-    uint8_t* v_p = u_p + width_half * height_half;
-
     int uv_x = 1;
 
     float mat[9] = {
@@ -24,8 +20,8 @@ void yuv420rgb(uint8_t* yuv, uint8_t* rgb, int width, int height) {
     
     int uv_offset = 128;
     int rgb_offset = 0;
-    uint8_t* u_p1 = u_p + width_half;
-    uint8_t* v_p1 = v_p + width_half;
+    const uint8_t* u_p1 = u_p + width_half;
+    const uint8_t* v_p1 = v_p + width_half;
 
     for(int y = 0; y < height; y++) {
         bool y0 = (y - 1) % 2 == 0;
@@ -115,3 +111,16 @@ void yuv420rgb(uint8_t* yuv, uint8_t* rgb, int width, int height) {
         }
     }
 }
+
+// yuv I420 -> RGB888
+void yuv420rgb(uint8_t* yuv, uint8_t* rgb, int width, int height) {
+    // yuv I420 layout [y: [width*height], u: [width/2 * height/2], v: [width/2 * height/2]]
+    // u, v need upsample (bilinear?)
+    int width_half = (width / 2), height_half = (height / 2);
+
+    const uint8_t* y_p = yuv;
+    const uint8_t* u_p = yuv + width * height;
+    const uint8_t* v_p = u_p + width_half * height_half;
+    yuv420rgb_multi_buffer(y_p, u_p, v_p, rgb, width, height);
+}
+

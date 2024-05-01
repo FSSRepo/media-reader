@@ -71,6 +71,8 @@ int ff_thread_init(AVCodecContext *avctx)
 {
     validate_thread_parameters(avctx);
 
+    
+
     if (avctx->active_thread_type&FF_THREAD_SLICE)
         return ff_slice_thread_init(avctx);
     else if (avctx->active_thread_type&FF_THREAD_FRAME)

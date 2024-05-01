@@ -80,9 +80,6 @@ int parse_mp4_box(file_stream* fs, int offset, int level, mp4_file* mp4, bool re
                         struct mp4_chunk_group* prev = &track->samples_groups[i - 1];
                         prev->chunk_count = group.first_chunk - prev->first_chunk;
                         first_sample += prev->chunk_count * prev->samples_per_chunk;
-                        if(track->type == VIDEO_TRACK) {
-                             printf("point = %d - %d\n",   group.first_chunk, group.samples_per_chunk);
-                        }
                     }
                     group.chunk_count = 0;
                     group.first_sample = first_sample;
@@ -511,4 +508,11 @@ struct mp4_track* mp4_get_track(struct mp4_file* mp4, mp4_track_type type) {
         }
     }
     return NULL;
+}
+
+void mp4_free_sample(mp4_sample &sample) {
+    if(sample.data) {
+        free(sample.data);
+        sample.data = NULL;
+    }
 }
