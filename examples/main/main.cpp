@@ -18,6 +18,8 @@ extern "C" {
 #include <GLFW/glfw3.h>
 #include <thread>
 #define MIN(a,b) a < b ? a : b
+#define STB_TRUETYPE_IMPLEMENTATION
+#include "stb_truetype.h"
 #endif
 
 // libde265
@@ -272,8 +274,14 @@ const char* fragment_shader_code =
 "#version 110\n"
 "uniform sampler2D uTexture;\n"
 "varying vec2 vtex_coord;\n"
+"uniform int text;\n"
 "void main() {\n"
-"    gl_FragColor = texture2D(uTexture, vtex_coord);\n"
+"	if(text == 1) {\n"
+"    	float l = texture2D(uTexture, vtex_coord).r;\n"
+"    	gl_FragColor = vec4(0.0, 0.0, 0.0, l);\n"
+"	} else {\n"
+"    	gl_FragColor = texture2D(uTexture, vtex_coord);\n"
+"	}\n"
 "}\0";
 
 int createShader(const char* code, int type) {
@@ -354,8 +362,63 @@ void mp4_play(mp4_file* mp4) {
     printf("OpenGL Vendor: %s\nOpenGL Device: %s\nOpenGL Version: %s\n", vendor, device, version);
 
 	GLuint program;
-	GLuint vbo, tex = -1;
+	GLuint vbo, tex = -1, text_tex = -1;
 
+	// display info in screen
+	std::string text = std::string(
+		"MP4 Info\nVideo Track:\n	" +
+		std::to_string(video_track->width) +" x " + std::to_string(video_track->height) +"\n	FPS: "+std::to_string(video_track->fps));
+	{
+		uint8_t* text_buffer = (uint8_t*)malloc(window_width * window_height);
+		memset(text_buffer, 0, window_width * window_height);
+		int line_height = 24;
+		// load font
+		FILE* fontFile = fopen("Abel.ttf", "rb");
+		fseek(fontFile, 0, SEEK_END);
+		int size = ftell(fontFile);
+		fseek(fontFile, 0, SEEK_SET);
+		uint8_t* font_file = (uint8_t*)malloc(size);
+		fread(font_file, size, 1, fontFile);
+		fclose(fontFile);
+		stbtt_fontinfo info;
+    	stbtt_InitFont(&info, font_file, 0);
+		float scale = stbtt_ScaleForPixelHeight(&info, line_height);
+		int offset_x = 0;
+		int ascent, descent, lineGap;
+		stbtt_GetFontVMetrics(&info, &ascent, &descent, &lineGap);
+		ascent = roundf(ascent * scale);
+		descent = roundf(descent * scale);
+		int offset_y = 0;
+		for (int i = 0; i < text.length(); ++i) {
+			if(text[i] == '\n') {
+				offset_y += line_height;
+				offset_x = 0;
+				continue;
+			} else if(text[i] == '	') {
+				offset_x += 30;
+				continue;
+			}
+			int ax;
+			int lsb;
+			stbtt_GetCodepointHMetrics(&info, text[i], &ax, &lsb);
+			int c_x1, c_y1, c_x2, c_y2;
+			stbtt_GetCodepointBitmapBox(&info, text[i], scale, scale, &c_x1, &c_y1, &c_x2, &c_y2);
+			int offset_y_ = offset_y + ascent + c_y1;
+			int byte_offset = offset_x + roundf(lsb * scale) + (offset_y_ * window_width);
+			stbtt_MakeCodepointBitmap(&info, text_buffer + byte_offset, c_x2 - c_x1, c_y2 - c_y1, window_width, scale, scale, text[i]);
+			offset_x += roundf(ax * scale);
+			int kern = stbtt_GetCodepointKernAdvance(&info, text[i], text[i + 1]);
+			offset_x += roundf(kern * scale);
+		}
+
+		glGenTextures(1, &text_tex);
+		glBindTexture(GL_TEXTURE_2D, text_tex);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, window_width, window_height, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, text_buffer);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	}
+
+	int u_text = -1;
     {
 		// create shaders
 		int vertex_shader = createShader(vertex_shader_code, GL_VERTEX_SHADER);
@@ -365,6 +428,8 @@ void mp4_play(mp4_file* mp4) {
 		glAttachShader(program, vertex_shader);
 		glAttachShader(program, fragment_shader);
 		glLinkProgram(program);
+
+		u_text = glGetUniformLocation(program, "text");
 
 		int status;
 		glGetProgramiv(program, GL_LINK_STATUS, &status);
@@ -496,10 +561,20 @@ void mp4_play(mp4_file* mp4) {
 			glClear(GL_COLOR_BUFFER_BIT);
 
 			glUseProgram(program);
-			glActiveTexture(GL_TEXTURE0);
+			glEnable(GL_BLEND);
+        	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+			glUniform1i(u_text, 0);
         	glBindTexture(GL_TEXTURE_2D, tex);
 			glBindBuffer(GL_ARRAY_BUFFER, vbo);
 			glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+			glUniform1i(u_text, 1);
+			glActiveTexture(GL_TEXTURE0);
+        	glBindTexture(GL_TEXTURE_2D, text_tex);
+			glBindBuffer(GL_ARRAY_BUFFER, vbo);
+			glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+			glDisable(GL_BLEND);
 		}
 
 		v_state.video_frame = (int)(video_time / segs_per_frame);
@@ -520,7 +595,6 @@ void mp4_play(mp4_file* mp4) {
 }
 
 int main(int argc, char* argv[]) {
-	// mp3_open("D:\\proyectos\\OpenMP3-master\\build\\bin\\Release\\test.mp3");
     if (argc > 1) {
 		mp4_file* mp4 = mp4_open(argv[1], false);
 		printf("MP4 file information\n");
