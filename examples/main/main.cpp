@@ -378,19 +378,19 @@ void mp4_play(mp4_file* mp4) {
 		glDeleteShader(fragment_shader);
 
 		float vertices[] = {
-			// X, Y, U, V, R, G, B
-			-1,  1, 0, 0, 1, 1, 1,
-			-1, -1, 0, 1, 1, 1, 1,
-			 1,  1, 1, 0, 1, 1, 1,
-			 1, -1, 1, 1, 1, 1, 1
+			// X, Y, U, V
+			-1,  1, 0, 0,
+			-1, -1, 0, 1,
+			 1,  1, 1, 0,
+			 1, -1, 1, 1,
 		};
 
 		glGenBuffers(1, &vbo);
 		glBindBuffer(GL_ARRAY_BUFFER, vbo);
-		glBufferData(GL_ARRAY_BUFFER, 44 * sizeof(float), vertices, GL_STATIC_DRAW);
+		glBufferData(GL_ARRAY_BUFFER, 16 * sizeof(float), vertices, GL_STATIC_DRAW);
 
 		// load data
-		glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 7*sizeof(float), (GLvoid*)0);
+		glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 4*sizeof(float), (GLvoid*)0);
 		glEnableVertexAttribArray(0);
 
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -520,7 +520,7 @@ void mp4_play(mp4_file* mp4) {
 }
 
 int main(int argc, char* argv[]) {
-	// mp3_open("D:\\proyectos\\OpenMP3-master\\build\\bin\\Release\\test.mp3");
+	mp3_open("D:\\proyectos\\OpenMP3-master\\build\\bin\\Release\\test.mp3");
     if (argc > 1) {
 		mp4_file* mp4 = mp4_open(argv[1], false);
 		printf("MP4 file information\n");
