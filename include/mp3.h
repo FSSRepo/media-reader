@@ -23,6 +23,13 @@ struct mp3_frame {
 	float m_sbs_v_vec[2][1024];
 };
 
-bool mp3_open(const char* filename);
+struct audio_data {
+    void* data;
+    int samplerate;
+    bool stereo;
+    size_t data_size;
+};
+
+audio_data* mp3_open(const char* filename);
 
 #endif

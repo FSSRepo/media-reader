@@ -8,7 +8,15 @@ if(MR_OGL_PLAYER)
     add_compile_definitions(MR_USE_OGL_PLAYER)
 endif()
 
-include_directories(${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/glad/include)
+if(MR_OAL_PLAYER)
+    link_directories(openal)
+    set(OAL_LIB OpenAL32)
+    set(OAL_INC openal/include)
+    add_compile_definitions(MR_USE_OAL_PLAYER)
+endif()
+
+include_directories(
+    ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/glad/include ${OAL_INC})
 add_executable(${TARGET} main.cpp ${OGL_FILES})
-target_link_libraries(${TARGET} PRIVATE media-reader h264 de265  ${OGL_LIBS})
+target_link_libraries(${TARGET} PRIVATE media-reader h264 de265 ${OGL_LIBS} ${OAL_LIB})
 target_compile_features(${TARGET} PUBLIC cxx_std_11)

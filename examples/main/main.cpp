@@ -16,8 +16,16 @@ extern "C" {
 #ifdef MR_USE_OGL_PLAYER
 #include "glad/gl.h"
 #include <GLFW/glfw3.h>
-#include <thread>
 #define MIN(a,b) a < b ? a : b
+#endif
+
+#ifdef MR_USE_OAL_PLAYER
+#include <AL/al.h>
+#include <AL/alc.h>
+#endif
+
+#if defined(MR_USE_OAL_PLAYER) || defined(MR_USE_OGL_PLAYER)
+#include <thread>
 #endif
 
 // libde265
@@ -254,7 +262,7 @@ void decode_and_save(mp4_file* mp4, int argc, char* argv[], bool save_png) {
 void print_usage() {
 	printf("\nusage: main <mp4 file path> <options>\n\noptions:\n\n	-d <output file> <frame count> <frame start> : decode to yuv file\n\n	-e <output file> : extract bitstream data\n\n	-c <output file (string formatted)> <frame count> <frame start> : extract as .png images\n\n		example: main test.mp4 -c out-%%d.png 10 0\n\n");
 #ifdef MR_USE_OGL_PLAYER
-	printf("	-p : play mp4 as an opengl texture (only h.264)\n");
+	printf("	-p : play mp4 as an opengl texture (only h.264) / mp3 with openal\n");
 #endif
 }
 
@@ -505,6 +513,8 @@ void mp4_play(mp4_file* mp4) {
 		v_state.video_frame = (int)(video_time / segs_per_frame);
 		video_time += dt;
 
+		printf("\r %d:%s%d ", (int)(video_time/60.0f), (int)(video_time) % 60 < 10 ? "0": "", (int)(video_time) % 60);
+
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
@@ -519,39 +529,107 @@ void mp4_play(mp4_file* mp4) {
 #endif
 }
 
+void mp3_play(const char* path) {
+#ifdef MR_USE_OAL_PLAYER
+	ALCdevice* dev = alcOpenDevice(NULL);
+	if(!dev) {
+		printf("audio: failed to open device");
+		return;
+	}
+	ALCcontext *ctx = alcCreateContext(dev, NULL);
+	if(!alcMakeContextCurrent(ctx)) {
+		printf("audio: failed to make context");
+		alcCloseDevice(dev);
+		return;
+	}
+	
+
+	printf("decoding mp3\n");
+	audio_data* aud = mp3_open(path);
+
+	printf("playing in OpenAL\n");
+
+	printf("audio device: %s\n", alGetString(AL_VERSION));
+
+	ALuint buff;
+	alGenBuffers(1, &buff);
+	alBufferData(buff, aud->stereo ? AL_FORMAT_STEREO16 : AL_FORMAT_MONO16, aud->data, aud->data_size, aud->samplerate);
+
+	ALuint src;
+	alGenSources(1, &src);
+	alSource3f(src, AL_POSITION, 0.0f, 0.0f, 0.0f);
+	alSource3f(src, AL_VELOCITY, 0.0f, 0.0f, 0.0f);
+	alSource3f(src, AL_DIRECTION, 0.0f, 0.0f, 0.0f);
+	alSourcei(src, AL_BUFFER, buff);
+	alSourcePlay(src);
+
+	ALint state;
+	do {
+		alGetSourcei(src, AL_SOURCE_STATE, &state);
+		float time;
+		alGetSourcef(src, AL_SEC_OFFSET, &time);
+		printf("\r %d:%s%d ", (int)(time/60.0f), (int)(time) % 60 < 10 ? "0": "", (int)(time) % 60);
+		std::this_thread::sleep_for(std::chrono::milliseconds(900));
+	} while(state == AL_PLAYING);
+
+	alDeleteSources(1, &src);
+	alDeleteBuffers(1, &buff);
+	alcMakeContextCurrent(NULL);
+	alcDestroyContext(ctx);
+	alcCloseDevice(dev);
+
+	free(aud->data);
+#else
+	printf("mp3 player not available, if you have openal, just compile with -DMR_OAL_PLAYER=ON");
+#endif
+}
+
 int main(int argc, char* argv[]) {
-	mp3_open("D:\\proyectos\\OpenMP3-master\\build\\bin\\Release\\test.mp3");
+	//mp3_open("D:\\proyectos\\OpenMP3-master\\build\\bin\\Release\\test.mp3");
     if (argc > 1) {
-		mp4_file* mp4 = mp4_open(argv[1], false);
-		printf("MP4 file information\n");
-		print_mp4_info(mp4);
-		if(argc >= 3) {
-			std::string op = std::string(argv[2]);
-			if((op == "-d" || op == "-c") && argc >= 4) {
-				decode_and_save(mp4, argc, argv, op == "-c");
-			} else if(op == "-e" && argc == 4) {
-				printf("extracting data into: %s\n", argv[3]);
-				FILE* fo = fopen(argv[3], "wb");
-				mp4_track* video_track = mp4_get_track(mp4, VIDEO_TRACK);
-				if(!video_track) {
-					fprintf(stderr, "missing video track");
-					return 0;
+		int path_len = strlen(argv[1]);
+		if(path_len > 4 && strcmp(argv[1] + path_len - 4, ".mp4") == 0) {
+			mp4_file* mp4 = mp4_open(argv[1], false);
+			printf("MP4 file information\n");
+			print_mp4_info(mp4);
+			if(argc >= 3) {
+				std::string op = std::string(argv[2]);
+				if((op == "-d" || op == "-c") && argc >= 4) {
+					decode_and_save(mp4, argc, argv, op == "-c");
+				} else if(op == "-e" && argc == 4) {
+					printf("extracting data into: %s\n", argv[3]);
+					FILE* fo = fopen(argv[3], "wb");
+					mp4_track* video_track = mp4_get_track(mp4, VIDEO_TRACK);
+					if(!video_track) {
+						fprintf(stderr, "missing video track");
+						return 0;
+					}
+					mp4_sample smpl;
+					bool add_nal_header = true;
+					for(int s = 0; s < video_track->sample_count; s++) {
+						mp4_read_video_sample(mp4, video_track, s, smpl, add_nal_header);
+						fwrite(smpl.data, 1, smpl.size, fo);
+					}
+					fclose(fo);
+					printf("%s data extracted", video_track->bs_type == H265_HEVC ? "h.265" : "h.h264");
+				} else if(op == "-p" && argc == 3) {
+					mp4_play(mp4);
+				} else {
+					print_usage();
 				}
-				mp4_sample smpl;
-				bool add_nal_header = true;
-				for(int s = 0; s < video_track->sample_count; s++) {
-					mp4_read_video_sample(mp4, video_track, s, smpl, add_nal_header);
-					fwrite(smpl.data, 1, smpl.size, fo);
+			}
+		} else if(path_len > 4 && strcmp(argv[1] + path_len - 4, ".mp3") == 0) {
+			if(argc >= 3) {
+				std::string op = std::string(argv[2]);
+				if(op == "-p" && argc == 3) {
+					mp3_play(argv[1]);
+				} else {
+					print_usage();
 				}
-				fclose(fo);
-				printf("%s data extracted", video_track->bs_type == H265_HEVC ? "h.265" : "h.h264");
-			} else if(op == "-p" && argc == 3) {
-				mp4_play(mp4);
-			} else {
-				print_usage();
 			}
 		}
 	} else {
 		print_usage();
 	}
+	return 1;
 }

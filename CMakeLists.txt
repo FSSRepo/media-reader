@@ -23,7 +23,8 @@ endif()
 
 # general
 option(MR_BUILD_EXAMPLES             "mr: build examples" ${MR_STANDALONE})
-option(MR_OGL_PLAYER                     "mr: build with OpenGL video player")
+option(MR_OGL_PLAYER                 "mr: build with OpenGL video player" OFF)
+option(MR_OAL_PLAYER                 "mr: build with OpenAL audio player" OFF)
 option(MR_BUILD_SHARED_LIBS          "mr: build shared libs" OFF)
 
 set(MR_LIB media-reader)
