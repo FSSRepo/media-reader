@@ -33,7 +33,8 @@ audio_data* mp3_open(const char* filename) {
             // skip ID3 tags - some mp3 files are concatened
             fs.set(fs.count - 4);
             fs.read(3);
-            if(std::string(fs.get_string(3)) == "ID3") {
+            std::string id3 = std::string(fs.get_string(3));
+            if(id3 == "ID3") {
                 fs.skip(3);
                 fs.read(4);
                 int tag_size = (fs.get() << (7*3)) | (fs.get() << (7*2)) | (fs.get() << 7) | fs.get();
@@ -42,7 +43,6 @@ audio_data* mp3_open(const char* filename) {
             } else {
                 return NULL;
             }
-            break;
         }
 
         int8_t id =                 (frame_info & 0x00080000) >> 19;
@@ -148,7 +148,6 @@ audio_data* mp3_open(const char* filename) {
     audio->data_size = length * (audio->stereo ? 2 : 1) * sizeof(int16_t);
 
     audio->data = malloc(audio->data_size);
-    
 
     for(int j = 0; j < length; j++) {
 		for(int i = 0;i < (audio->stereo ? 2 : 1); i ++) {

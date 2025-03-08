@@ -10,4 +10,6 @@ You can parse mp4 videos (h.264) and get the frames in a rgb buffer and parse mp
 
 # Limitations
 
+ - gcc 13.2 max, gcc 14.2 fails with w32threads
+
  - Just h.264 and h.265 videos are supported

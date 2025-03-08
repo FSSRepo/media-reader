@@ -198,7 +198,7 @@ void decode_and_save(mp4_file* mp4, int argc, char* argv[], bool save_png) {
 		int frame_index = nearest_packet_frame;
 		int pos = 0;
 		int more = 1;
-
+		char png_filename[64];
 		int s = nearest_packet_frame;
 		bool stop = false;
 		while(!stop) {
@@ -217,7 +217,6 @@ void decode_and_save(mp4_file* mp4, int argc, char* argv[], bool save_png) {
 			}
 
 			more = 1;
-			char png_filename[64];
 			while(more) {
 				more = 0;
 				err = de265_decode(ctx, &more);
@@ -408,7 +407,7 @@ void mp4_play(mp4_file* mp4) {
 	v_state.frame_data = (uint8_t*)malloc(video_track->width * video_track->height * 3);
 
 	std::thread th([&v_state, mp4, video_track]() {
-		{
+		if(video_track->bs_type != H265_HEVC) {
 			// initialize codec
 			avcodec_register(&ff_h264_decoder);
 			AVCodec *codec = avcodec_find_decoder(AV_CODEC_ID_H264);
@@ -454,6 +453,70 @@ void mp4_play(mp4_file* mp4) {
 			avcodec_close(codec_ctx);
 			av_free(codec_ctx);
 			av_frame_free(&frame);
+		} else {
+			de265_error err = DE265_OK;
+			de265_decoder_context *ctx = de265_new_decoder();
+			de265_set_parameter_bool(ctx, DE265_DECODER_PARAM_BOOL_SEI_CHECK_HASH, false);
+			de265_set_parameter_bool(ctx, DE265_DECODER_PARAM_SUPPRESS_FAULTY_PICTURES, false);
+			de265_set_parameter_bool(ctx, DE265_DECODER_PARAM_DISABLE_DEBLOCKING, 0);
+			de265_set_parameter_bool(ctx, DE265_DECODER_PARAM_DISABLE_SAO, 0);
+			de265_set_limit_TID(ctx, 100);
+			de265_set_verbosity(0);
+			{
+				mp4_sample sample;
+				int got_frame 		=  0;
+				int frame_decode 	= 0;
+				int step = 0; // 0: feed, 1: decoding, 2: wait
+
+				int pos = 0;
+				int more = 1;
+
+				printf("decoding loop ...\n");
+				// decoding loop
+
+				while(frame_decode < video_track->sample_count && !v_state.kill) {
+					// texture updated queue next frame
+					if(step != 1 &&
+						!v_state.load_new_frame &&
+						frame_decode < v_state.video_frame) {
+						step = 0;
+					}
+					if(step == 0) {
+						mp4_read_video_sample(mp4, video_track, frame_decode, sample, true);
+						err = de265_push_data(ctx, sample.data, sample.size, pos, (void *)2);
+						pos += sample.size;
+						frame_decode++;
+						if (err != DE265_OK) {
+							break;
+						}
+						step++;
+					} else if(step == 1) {
+						more = 1;
+						while(more) {
+							more = 0;
+							err = de265_decode(ctx, &more);
+							if (err != DE265_OK) {
+								break;
+							}
+							const de265_image *img = de265_get_next_picture(ctx);
+							if (img) {
+								int stride;
+									yuv420rgb_multi_buffer(
+										de265_get_image_plane(img, 0, &stride),
+										de265_get_image_plane(img, 1, &stride),
+										de265_get_image_plane(img, 2, &stride), v_state.frame_data, video_track->width, video_track->height);
+								step = 2;
+								v_state.load_new_frame = true;
+							} else {
+								// more data
+								step = 0;
+							}
+						}
+					}
+				}
+
+				de265_flush_data(ctx);
+			}
 		}
 	});
 
@@ -542,7 +605,6 @@ void mp3_play(const char* path) {
 		alcCloseDevice(dev);
 		return;
 	}
-	
 
 	printf("decoding mp3\n");
 	audio_data* aud = mp3_open(path);

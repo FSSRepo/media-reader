@@ -27,7 +27,7 @@
 #endif
 
 #define HAVE_SYSCTL 0
-#define HAVE_SCHED_GETAFFINITY 1
+#define HAVE_SCHED_GETAFFINITY 0
 #define HAVE_THREADS 1
 
 #define FFMPEG_CONFIGURATION "--disable-asm --disable-pthreads --disable-doc --disable-encoders --disable-muxers --disable-decoders --enable-decoder=h264 --disable-parsers --enable-parser=h264 --disable-demuxers --enable-demuxer=h264 --disable-filters --disable-programs --enable-ffmpeg"
