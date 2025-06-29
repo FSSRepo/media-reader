@@ -104,51 +104,13 @@ audio_data* mp3_open(const char* filename) {
     int time = (num_frames*1152) / frame.samplerate;
 
     printf("duration: %d minutes, %d seconds\n", time/60, time % 60);
-    
+
     int length = audio_data[0].size();
-    {
-	// FILE* wav = fopen("out.wav", "wb");
-	// uint8_t* wav_header = new uint8_t[44];
-	// memcpy(wav_header, "RIFF\xff\xff\xff\xffWAVEfmt ", 16);
-	// uint16_t channels_ = (frame.mode == MODE_MONO ? 1 : 2);
-	// int file_size_ = 44 + channels_ * 2 * length;
-	// memcpy(wav_header + 4, &file_size_, 4);
-	// int tmp = 16; // size
-	// memcpy(wav_header + 16, &tmp, 4);
-	// short tmp2 = 1; // PCM
-	// memcpy(wav_header + 20, &tmp2, 2);
-	// memcpy(wav_header + 22, &channels_, 2);
-	// tmp = frame.samplerate; // sample rate
-	// memcpy(wav_header + 24, &tmp, 4);
-	// tmp = frame.samplerate * channels_ * 2; // byte rate
-	// memcpy(wav_header + 28, &tmp, 4);
-	// tmp2 = 4; // align
-	// memcpy(wav_header + 32, &tmp2, 2);
-	// tmp2 = 16; // bits per sample
-	// memcpy(wav_header + 34, &tmp2, 2);
-	// memcpy(wav_header + 36, "data\xff\xff\xff\xff", 8);
-	// int data_size = channels_ * 2 * length;
-	// memcpy(wav_header + 40, &data_size, 4);
-	// fwrite(wav_header, 1, 44, wav);
-	// for(int j = 0; j < length; j++) {
-	// 	for(int i = 0;i < channels_;i ++) {
-	// 		int x = (int)(audio_data[i][j] * 32767.f);
-	// 		// clamp
-	// 		x = x > 32767 ? 32767 : (x < -32767 ? -32767 : x);
-	// 		int16_t x_a = x;
-	// 		fwrite(&x_a, 1, 2, wav);
-	// 	}
-	// }
-	// fclose(wav);
-    }
     int index = 0;
-    
+
     audio->stereo = frame.mode != MODE_MONO;
-
     audio->data_size = length * (audio->stereo ? 2 : 1) * sizeof(int16_t);
-
     audio->data = malloc(audio->data_size);
-
     for(int j = 0; j < length; j++) {
 		for(int i = 0;i < (audio->stereo ? 2 : 1); i ++) {
 			int x = (int)(audio_data[i][j] * 32767.f);

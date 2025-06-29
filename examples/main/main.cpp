@@ -685,6 +685,32 @@ int main(int argc, char* argv[]) {
 				std::string op = std::string(argv[2]);
 				if(op == "-p" && argc == 3) {
 					mp3_play(argv[1]);
+				} else if(op == "-w" && argc == 3) {
+					audio_data* aud = mp3_open(argv[1]);
+					FILE* wav = fopen("output.wav", "wb");
+					uint8_t* wav_header = new uint8_t[44];
+					memcpy(wav_header, "RIFF\xff\xff\xff\xffWAVEfmt ", 16);
+					uint16_t channels_ = (aud->stereo ? 2 : 1);
+					int file_size_ = 44 + aud->data_size;
+					memcpy(wav_header + 4, &file_size_, 4);
+					int tmp = 16; // size
+					memcpy(wav_header + 16, &tmp, 4);
+					short tmp2 = 1; // PCM
+					memcpy(wav_header + 20, &tmp2, 2);
+					memcpy(wav_header + 22, &channels_, 2);
+					tmp = aud->samplerate; // sample rate
+					memcpy(wav_header + 24, &tmp, 4);
+					tmp = aud->samplerate * channels_ * 2; // byte rate
+					memcpy(wav_header + 28, &tmp, 4);
+					tmp2 = 4; // align
+					memcpy(wav_header + 32, &tmp2, 2);
+					tmp2 = 16; // bits per sample
+					memcpy(wav_header + 34, &tmp2, 2);
+					memcpy(wav_header + 36, "data\xff\xff\xff\xff", 8);
+					memcpy(wav_header + 40, &aud->data_size, 4);
+					fwrite(wav_header, 1, 44, wav);
+					fwrite(aud->data, 1, aud->data_size, wav);
+					fclose(wav);
 				} else {
 					print_usage();
 				}
