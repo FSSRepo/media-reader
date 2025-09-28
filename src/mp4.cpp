@@ -310,7 +310,7 @@ struct mp4_file* mp4_open(const char* filename, bool verbose) {
     return mp4;
 }
 
-void mp4_get_video_sample(struct mp4_track* track, int index, mp4_sample &sample) {
+void mp4_get_sample(struct mp4_track* track, int index, mp4_sample &sample) {
     {
         index++;
         int chunk, skip_samples;
@@ -344,7 +344,7 @@ void mp4_nearest_iframe(struct mp4_file* mp4, struct mp4_track* track, int index
 
     // backward pass
     for(int i = index; i >= 0; i--) {
-        mp4_get_video_sample(track, i, sample);
+        mp4_get_sample(track, i, sample);
         mp4->fs->set(sample.offset + track->nalu_length_size);
         mp4->fs->read(1);
         if(mp4->fs->get() == track->begin_payload_packet) {
@@ -354,9 +354,49 @@ void mp4_nearest_iframe(struct mp4_file* mp4, struct mp4_track* track, int index
     }
 }
 
+static unsigned int
+GetSamplingFrequencyIndex(unsigned int sampling_frequency)
+{
+    switch (sampling_frequency) {
+        case 96000: return 0;
+        case 88200: return 1;
+        case 64000: return 2;
+        case 48000: return 3;
+        case 44100: return 4;
+        case 32000: return 5;
+        case 24000: return 6;
+        case 22050: return 7;
+        case 16000: return 8;
+        case 12000: return 9;
+        case 11025: return 10;
+        case 8000:  return 11;
+        case 7350:  return 12;
+        default:    return 0;
+    }
+}
+
+void mp4_read_audio_sample(struct mp4_file* mp4, struct mp4_track* track, int index, mp4_sample &sample) {
+    struct file_stream* fs = mp4->fs;
+    mp4_get_sample(track, index, sample);
+    fs->set(sample.offset);
+    int sampling_frequency_index = GetSamplingFrequencyIndex(track->sample_rate);
+    int frame_size = sample.size + 7;
+    sample.data = (uint8_t*)malloc(frame_size);
+    sample.data[0] = 0xFF;
+	sample.data[1] = 0xF1; // 0xF9 (MPEG2)
+    sample.data[2] = 0x40 | (sampling_frequency_index << 2) | (track->num_channels >> 2);
+    sample.data[3] = ((track->num_channels&0x3)<<6) | ((frame_size) >> 11);
+    sample.data[4] = ((frame_size) >> 3)&0xFF;
+	sample.data[5] = (((frame_size) << 5)&0xFF) | 0x1F;
+	sample.data[6] = 0xFC;
+    fs->read(sample.data + 7, sample.size);
+    sample.size = frame_size;
+}
+
+
 void mp4_read_video_sample(struct mp4_file* mp4, struct mp4_track* track, int index, mp4_sample &sample, bool include_nal_unit) {
     struct file_stream* fs = mp4->fs;
-    mp4_get_video_sample(track, index, sample);
+    mp4_get_sample(track, index, sample);
     fs->set(sample.offset);
     if(include_nal_unit) {
         int offset = 0;

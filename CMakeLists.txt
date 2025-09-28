@@ -61,14 +61,18 @@ add_subdirectory(external/libde265)
 # mp3 decoder from https://github.com/audioboy77/OpenMP3
 add_subdirectory(external/openmp3)
 
+# mp3 decoder from https://github.com/mstorsjo/fdk-aac
+add_subdirectory(external/libaac)
+
 set(ADDITIONAL_LIBDE265_INCLUDES external/libde265/extra)
 
-target_link_libraries(${MR_LIB} PUBLIC h264 openmp3)
+target_link_libraries(${MR_LIB} PUBLIC h264 openmp3 aac)
 target_include_directories(${MR_LIB} PUBLIC
     .
     external/ffmpeg
     external/openmp3
     external/libde265/libde265
+    external/libaac/include
     ${ADDITIONAL_LIBDE265_INCLUDES})
 target_compile_features(${MR_LIB} PUBLIC cxx_std_11)
 

@@ -5,6 +5,8 @@
 #define STB_IMAGE_WRITE_STATIC
 #include "stb_image_write.h"
 
+#include "aacdecoder_lib.h"
+
 // ffmpeg h264 decoder
 extern "C" {
 	#include <stdio.h>
@@ -12,6 +14,8 @@ extern "C" {
 	#include "libavcodec/avcodec.h"
 	extern AVCodec ff_h264_decoder;
 }
+
+#define PCM_BUFFER_SIZE 2 * 2048
 
 #ifdef MR_USE_OGL_PLAYER
 #include "glad/gl.h"
@@ -30,6 +34,33 @@ extern "C" {
 
 // libde265
 #include "de265.h"
+
+static void wav_write(audio_data* aud) {
+	FILE* wav = fopen("output.wav", "wb");
+	uint8_t* wav_header = new uint8_t[44];
+	memcpy(wav_header, "RIFF\xff\xff\xff\xffWAVEfmt ", 16);
+	uint16_t channels_ = (aud->stereo ? 2 : 1);
+	int file_size_ = 44 + aud->data_size;
+	memcpy(wav_header + 4, &file_size_, 4);
+	int tmp = 16; // size
+	memcpy(wav_header + 16, &tmp, 4);
+	short tmp2 = 1; // PCM
+	memcpy(wav_header + 20, &tmp2, 2);
+	memcpy(wav_header + 22, &channels_, 2);
+	tmp = aud->samplerate; // sample rate
+	memcpy(wav_header + 24, &tmp, 4);
+	tmp = aud->samplerate * channels_ * 2; // byte rate
+	memcpy(wav_header + 28, &tmp, 4);
+	tmp2 = 4; // align
+	memcpy(wav_header + 32, &tmp2, 2);
+	tmp2 = 16; // bits per sample
+	memcpy(wav_header + 34, &tmp2, 2);
+	memcpy(wav_header + 36, "data\xff\xff\xff\xff", 8);
+	memcpy(wav_header + 40, &aud->data_size, 4);
+	fwrite(wav_header, 1, 44, wav);
+	fwrite(aud->data, 1, aud->data_size, wav);
+	fclose(wav);
+}
 
 static void yuv_save(unsigned char *buf[], int wrap[], int xsize, int ysize, FILE *f)
 {
@@ -363,6 +394,77 @@ void mp4_play(mp4_file* mp4) {
 	GLuint program;
 	GLuint vbo, tex = -1;
 
+#ifdef MR_USE_OAL_PLAYER
+	ALCdevice* dev = alcOpenDevice(NULL);
+	if(!dev) {
+		printf("audio: failed to open device");
+		return;
+	}
+	ALCcontext *ctx = alcCreateContext(dev, NULL);
+	if(!alcMakeContextCurrent(ctx)) {
+		printf("audio: failed to make context");
+		alcCloseDevice(dev);
+		return;
+	}
+	mp4_sample smpl;
+	audio_data aud;
+	std::vector<short> audio_data;
+	
+	{
+		mp4_track* audio_track = mp4_get_track(mp4, AUDIO_TRACK);
+		if(!audio_track) {
+			fprintf(stderr, "missing audio track");
+			return;
+		}
+		HANDLE_AACDECODER aac_dec = aacDecoder_Open(TT_MP4_ADTS, 1);
+		INT_PCM pcm_out[PCM_BUFFER_SIZE];
+		for(int s = 0; s < audio_track->sample_count; s++) {
+			mp4_read_audio_sample(mp4, audio_track, s, smpl);
+			UCHAR *in_ptr = smpl.data;
+			UINT bytes_valid = smpl.size;
+			if (aacDecoder_Fill(aac_dec, &in_ptr, &bytes_valid, &bytes_valid) != AAC_DEC_OK) {
+				fprintf(stderr, "aacDecoder_Fill error\n");
+				free(smpl.data);
+				break;
+			}
+			AAC_DECODER_ERROR err = aacDecoder_DecodeFrame(aac_dec, pcm_out, PCM_BUFFER_SIZE, 0);
+			if (err != AAC_DEC_OK) {
+				fprintf(stderr, "Decode error: %x\n", err);
+				free(smpl.data);
+				continue;
+			}
+
+			CStreamInfo *info = aacDecoder_GetStreamInfo(aac_dec);
+			if (!info || info->sampleRate <= 0) {
+				fprintf(stderr, "No stream info\n");
+				break;
+			}
+
+			for(int i = 0; i < (info->frameSize * info->numChannels); i ++) {
+				audio_data.push_back(pcm_out[i]);
+			}
+		}
+		aud.samplerate = audio_track->sample_rate;
+		aud.stereo = audio_track->num_channels == 2;
+	}
+
+	printf("playing in OpenAL\n");
+
+	printf("audio device: %s\n", alGetString(AL_VERSION));
+
+	ALuint buff;
+	alGenBuffers(1, &buff);
+	alBufferData(buff, aud.stereo ? AL_FORMAT_STEREO16 : AL_FORMAT_MONO16, audio_data.data(), audio_data.size() * 2, aud.samplerate);
+
+	ALuint src;
+	alGenSources(1, &src);
+	alSource3f(src, AL_POSITION, 0.0f, 0.0f, 0.0f);
+	alSource3f(src, AL_VELOCITY, 0.0f, 0.0f, 0.0f);
+	alSource3f(src, AL_DIRECTION, 0.0f, 0.0f, 0.0f);
+	alSourcei(src, AL_BUFFER, buff);
+	alSourcePlay(src);
+#endif
+
     {
 		// create shaders
 		int vertex_shader = createShader(vertex_shader_code, GL_VERTEX_SHADER);
@@ -674,6 +776,49 @@ int main(int argc, char* argv[]) {
 					}
 					fclose(fo);
 					printf("%s data extracted", video_track->bs_type == H265_HEVC ? "h.265" : "h.h264");
+				}  else if(op == "-ea" && argc == 3) {
+					mp4_track* audio_track = mp4_get_track(mp4, AUDIO_TRACK);
+					if(!audio_track) {
+						fprintf(stderr, "missing audio track");
+						return 0;
+					}
+					mp4_sample smpl;
+					audio_data aud;
+					std::vector<short> data;
+					HANDLE_AACDECODER aac_dec = aacDecoder_Open(TT_MP4_ADTS, 1);
+					INT_PCM pcm_out[PCM_BUFFER_SIZE];
+					for(int s = 0; s < audio_track->sample_count; s++) {
+						mp4_read_audio_sample(mp4, audio_track, s, smpl);
+						UCHAR *in_ptr = smpl.data;
+						UINT bytes_valid = smpl.size;
+						if (aacDecoder_Fill(aac_dec, &in_ptr, &bytes_valid, &bytes_valid) != AAC_DEC_OK) {
+							fprintf(stderr, "aacDecoder_Fill error\n");
+							free(smpl.data);
+							break;
+						}
+						AAC_DECODER_ERROR err = aacDecoder_DecodeFrame(aac_dec, pcm_out, PCM_BUFFER_SIZE, 0);
+						if (err != AAC_DEC_OK) {
+							fprintf(stderr, "Decode error: %x\n", err);
+							free(smpl.data);
+							continue;
+						}
+
+						CStreamInfo *info = aacDecoder_GetStreamInfo(aac_dec);
+						if (!info || info->sampleRate <= 0) {
+							fprintf(stderr, "No stream info\n");
+							break;
+						}
+
+						for(int i = 0; i < (info->frameSize * info->numChannels); i ++) {
+							data.push_back(pcm_out[i]);
+						}
+					}
+					aud.data = data.data();
+					aud.data_size = data.size() * 2;
+					aud.samplerate = audio_track->sample_rate;
+					aud.stereo = audio_track->num_channels == 2;
+					wav_write(&aud);
+					printf("acc data extracted");
 				} else if(op == "-p" && argc == 3) {
 					mp4_play(mp4);
 				} else {
@@ -687,30 +832,7 @@ int main(int argc, char* argv[]) {
 					mp3_play(argv[1]);
 				} else if(op == "-w" && argc == 3) {
 					audio_data* aud = mp3_open(argv[1]);
-					FILE* wav = fopen("output.wav", "wb");
-					uint8_t* wav_header = new uint8_t[44];
-					memcpy(wav_header, "RIFF\xff\xff\xff\xffWAVEfmt ", 16);
-					uint16_t channels_ = (aud->stereo ? 2 : 1);
-					int file_size_ = 44 + aud->data_size;
-					memcpy(wav_header + 4, &file_size_, 4);
-					int tmp = 16; // size
-					memcpy(wav_header + 16, &tmp, 4);
-					short tmp2 = 1; // PCM
-					memcpy(wav_header + 20, &tmp2, 2);
-					memcpy(wav_header + 22, &channels_, 2);
-					tmp = aud->samplerate; // sample rate
-					memcpy(wav_header + 24, &tmp, 4);
-					tmp = aud->samplerate * channels_ * 2; // byte rate
-					memcpy(wav_header + 28, &tmp, 4);
-					tmp2 = 4; // align
-					memcpy(wav_header + 32, &tmp2, 2);
-					tmp2 = 16; // bits per sample
-					memcpy(wav_header + 34, &tmp2, 2);
-					memcpy(wav_header + 36, "data\xff\xff\xff\xff", 8);
-					memcpy(wav_header + 40, &aud->data_size, 4);
-					fwrite(wav_header, 1, 44, wav);
-					fwrite(aud->data, 1, aud->data_size, wav);
-					fclose(wav);
+					wav_write(aud);
 				} else {
 					print_usage();
 				}

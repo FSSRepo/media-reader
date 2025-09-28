@@ -80,9 +80,10 @@ struct mp4_file {
 };
 
 struct mp4_file* mp4_open(const char* filename, bool verbose);
-void mp4_get_video_sample(struct mp4_track* track, int index, mp4_sample &sample);
+void mp4_get_sample(struct mp4_track* track, int index, mp4_sample &sample);
 void mp4_nearest_iframe(struct mp4_file* mp4, struct mp4_track* track, int index, int* result);
 void mp4_read_video_sample(struct mp4_file* mp4, struct mp4_track* track, int index, mp4_sample &sample, bool include_nal_unit);
+void mp4_read_audio_sample(struct mp4_file* mp4, struct mp4_track* track, int index, mp4_sample &sample);
 struct mp4_track* mp4_get_track(struct mp4_file* mp4, mp4_track_type type);
 
 void mp4_free_sample(mp4_sample &sample);
