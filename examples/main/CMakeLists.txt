@@ -18,5 +18,5 @@ endif()
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/glad/include ${OAL_INC})
 add_executable(${TARGET} main.cpp ${OGL_FILES})
-target_link_libraries(${TARGET} PRIVATE media-reader h264 de265 ${OGL_LIBS} ${OAL_LIB})
+target_link_libraries(${TARGET} PRIVATE media-reader h264 de265 aac ${OGL_LIBS} ${OAL_LIB})
 target_compile_features(${TARGET} PUBLIC cxx_std_11)

@@ -7,7 +7,7 @@ You can parse mp4 videos (h.264) and get the frames in a rgb buffer and parse mp
  - h264: decoder part from [ffmpeg](https://github.com/FFmpeg/FFmpeg)
  - [libdec265](https://github.com/strukturag/libde265)
  - stb_image writer
-  - [FDK Aac](https://github.com/mstorsjo/fdk-aac)
+  - [FDK AAC Decoder](https://github.com/mstorsjo/fdk-aac)
 
 # Limitations
 

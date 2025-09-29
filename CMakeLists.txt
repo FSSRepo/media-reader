@@ -66,7 +66,7 @@ add_subdirectory(external/libaac)
 
 set(ADDITIONAL_LIBDE265_INCLUDES external/libde265/extra)
 
-target_link_libraries(${MR_LIB} PUBLIC h264 openmp3 aac)
+target_link_libraries(${MR_LIB} PUBLIC openmp3)
 target_include_directories(${MR_LIB} PUBLIC
     .
     external/ffmpeg
