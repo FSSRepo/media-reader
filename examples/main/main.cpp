@@ -395,74 +395,77 @@ void mp4_play(mp4_file* mp4) {
 	GLuint vbo, tex = -1;
 
 #ifdef MR_USE_OAL_PLAYER
-	ALCdevice* dev = alcOpenDevice(NULL);
-	if(!dev) {
-		printf("audio: failed to open device");
-		return;
-	}
-	ALCcontext *ctx = alcCreateContext(dev, NULL);
-	if(!alcMakeContextCurrent(ctx)) {
-		printf("audio: failed to make context");
-		alcCloseDevice(dev);
-		return;
-	}
 	mp4_sample smpl;
 	audio_data aud;
 	std::vector<short> audio_data;
-	
-	{
-		mp4_track* audio_track = mp4_get_track(mp4, AUDIO_TRACK);
-		if(!audio_track) {
-			fprintf(stderr, "missing audio track");
-			return;
+
+	mp4_track* audio_track = mp4_get_track(mp4, AUDIO_TRACK);
+	bool have_audio = (audio_track != NULL);
+	if(!have_audio) {
+		fprintf(stderr, "missing audio track; will play video only\n");
+	} else {
+		ALCdevice* dev = alcOpenDevice(NULL);
+		if(!dev) {
+			printf("audio: failed to open device, continuing without audio\n");
+			have_audio = false;
 		}
-		HANDLE_AACDECODER aac_dec = aacDecoder_Open(TT_MP4_ADTS, 1);
-		INT_PCM pcm_out[PCM_BUFFER_SIZE];
-		for(int s = 0; s < audio_track->sample_count; s++) {
-			mp4_read_audio_sample(mp4, audio_track, s, smpl);
-			UCHAR *in_ptr = smpl.data;
-			UINT bytes_valid = smpl.size;
-			if (aacDecoder_Fill(aac_dec, &in_ptr, &bytes_valid, &bytes_valid) != AAC_DEC_OK) {
-				fprintf(stderr, "aacDecoder_Fill error\n");
-				free(smpl.data);
-				break;
-			}
-			AAC_DECODER_ERROR err = aacDecoder_DecodeFrame(aac_dec, pcm_out, PCM_BUFFER_SIZE, 0);
-			if (err != AAC_DEC_OK) {
-				fprintf(stderr, "Decode error: %x\n", err);
-				free(smpl.data);
-				continue;
-			}
-
-			CStreamInfo *info = aacDecoder_GetStreamInfo(aac_dec);
-			if (!info || info->sampleRate <= 0) {
-				fprintf(stderr, "No stream info\n");
-				break;
-			}
-
-			for(int i = 0; i < (info->frameSize * info->numChannels); i ++) {
-				audio_data.push_back(pcm_out[i]);
+		ALCcontext *ctx = NULL;
+		if(have_audio) {
+			ctx = alcCreateContext(dev, NULL);
+			if(!alcMakeContextCurrent(ctx)) {
+				printf("audio: failed to make context, continuing without audio\n");
+				alcCloseDevice(dev);
+				have_audio = false;
 			}
 		}
-		aud.samplerate = audio_track->sample_rate;
-		aud.stereo = audio_track->num_channels == 2;
+		if(have_audio) {
+			HANDLE_AACDECODER aac_dec = aacDecoder_Open(TT_MP4_ADTS, 1);
+			INT_PCM pcm_out[PCM_BUFFER_SIZE];
+			for(int s = 0; s < audio_track->sample_count; s++) {
+				mp4_read_audio_sample(mp4, audio_track, s, smpl);
+				UCHAR *in_ptr = smpl.data;
+				UINT bytes_valid = smpl.size;
+				if (aacDecoder_Fill(aac_dec, &in_ptr, &bytes_valid, &bytes_valid) != AAC_DEC_OK) {
+					fprintf(stderr, "aacDecoder_Fill error\n");
+					free(smpl.data);
+					break;
+				}
+				AAC_DECODER_ERROR err = aacDecoder_DecodeFrame(aac_dec, pcm_out, PCM_BUFFER_SIZE, 0);
+				if (err != AAC_DEC_OK) {
+					fprintf(stderr, "Decode error: %x\n", err);
+					free(smpl.data);
+					continue;
+				}
+
+				CStreamInfo *info = aacDecoder_GetStreamInfo(aac_dec);
+				if (!info || info->sampleRate <= 0) {
+					fprintf(stderr, "No stream info\n");
+					break;
+				}
+
+				for(int i = 0; i < (info->frameSize * info->numChannels); i ++) {
+					audio_data.push_back(pcm_out[i]);
+				}
+			}
+			aud.samplerate = audio_track->sample_rate;
+			aud.stereo = audio_track->num_channels == 2;
+
+			printf("playing in OpenAL\n");
+			printf("audio device: %s\n", alGetString(AL_VERSION));
+
+			ALuint buff;
+			alGenBuffers(1, &buff);
+			alBufferData(buff, aud.stereo ? AL_FORMAT_STEREO16 : AL_FORMAT_MONO16, audio_data.data(), static_cast<ALsizei>(audio_data.size() * 2), aud.samplerate);
+
+			ALuint src;
+			alGenSources(1, &src);
+			alSource3f(src, AL_POSITION, 0.0f, 0.0f, 0.0f);
+			alSource3f(src, AL_VELOCITY, 0.0f, 0.0f, 0.0f);
+			alSource3f(src, AL_DIRECTION, 0.0f, 0.0f, 0.0f);
+			alSourcei(src, AL_BUFFER, buff);
+			alSourcePlay(src);
+		}
 	}
-
-	printf("playing in OpenAL\n");
-
-	printf("audio device: %s\n", alGetString(AL_VERSION));
-
-	ALuint buff;
-	alGenBuffers(1, &buff);
-	alBufferData(buff, aud.stereo ? AL_FORMAT_STEREO16 : AL_FORMAT_MONO16, audio_data.data(), audio_data.size() * 2, aud.samplerate);
-
-	ALuint src;
-	alGenSources(1, &src);
-	alSource3f(src, AL_POSITION, 0.0f, 0.0f, 0.0f);
-	alSource3f(src, AL_VELOCITY, 0.0f, 0.0f, 0.0f);
-	alSource3f(src, AL_DIRECTION, 0.0f, 0.0f, 0.0f);
-	alSourcei(src, AL_BUFFER, buff);
-	alSourcePlay(src);
 #endif
 
     {
