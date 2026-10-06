@@ -66,6 +66,9 @@ struct mp4_track {
     int sample_rate;
     int16_t num_channels;
 
+    // AudioSpecificConfig (para AAC raw del MP4)
+    std::vector<uint8_t> audio_specific_config;
+
     // video params
     int width;
     int height;

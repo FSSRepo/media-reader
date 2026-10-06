@@ -88,7 +88,7 @@ static av_unused int pthread_create(pthread_t *thread, const void *unused_attr,
     thread->func   = start_routine;
     thread->arg    = arg;
 #if HAVE_WINRT
-    thread->handle = (void*)CreateThread(NULL, 0, win32thread_worker, thread,
+    thread->handle = (void*)CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)win32thread_worker, thread,
                                            0, NULL);
 #else
     thread->handle = (void*)_beginthreadex(NULL, 0, win32thread_worker, thread,
@@ -149,7 +149,7 @@ static av_unused int pthread_once(pthread_once_t *once_control, void (*init_rout
 
 static inline int pthread_cond_init(pthread_cond_t *cond, const void *unused_attr)
 {
-    InitializeConditionVariable(cond);
+    InitializeConditionVariable((PCONDITION_VARIABLE)cond);
     return 0;
 }
 
@@ -161,19 +161,19 @@ static inline int pthread_cond_destroy(pthread_cond_t *cond)
 
 static inline int pthread_cond_broadcast(pthread_cond_t *cond)
 {
-    WakeAllConditionVariable(cond);
+    WakeAllConditionVariable((PCONDITION_VARIABLE)cond);
     return 0;
 }
 
 static inline int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex)
 {
-    SleepConditionVariableCS(cond, mutex, INFINITE);
+    SleepConditionVariableCS((PCONDITION_VARIABLE)cond, mutex, INFINITE);
     return 0;
 }
 
 static inline int pthread_cond_signal(pthread_cond_t *cond)
 {
-    WakeConditionVariable(cond);
+    WakeConditionVariable((PCONDITION_VARIABLE)cond);
     return 0;
 }
 

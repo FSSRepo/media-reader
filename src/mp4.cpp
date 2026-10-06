@@ -214,9 +214,7 @@ int parse_mp4_box(file_stream* fs, int offset, int level, mp4_file* mp4, bool re
             fs->skip(14);
             fs->read(2);
             track->num_channels = fs->next_uint16();
-            fs->skip(4);
-            fs->read(4);
-            track->sample_rate = fs->next_uint32();
+            fs->skip(8); // skip time_scale
             if(version == 1) { // ! untested
                 fs->skip(16);
             } else if(version == 2) { // ! untested
@@ -248,8 +246,64 @@ int parse_mp4_box(file_stream* fs, int offset, int level, mp4_file* mp4, bool re
             if(tag == 3) {
                 uint8_t* payload = (uint8_t*)malloc(payload_size);
                 fs->read(payload, payload_size);
-                int es_id = read_uint16_be(payload);
-                int bits = payload[2];
+                // Buscar el AudioSpecificConfig (tag 5) dentro del ES_Descriptor.
+                // El descriptor usa sintaxis MPEG-4: tag (1 byte) + size (1-4 bytes).
+                int i = 3; // skip ES_ID (2) + flags (1)
+                bool found_dsi = false;
+                while (i < (int)payload_size && !found_dsi) {
+                    int sub_tag = payload[i++];
+                    // Leer el tamaño (1-4 bytes, formato variable)
+                    int sub_size = 0;
+                    int size_bytes = 0;
+                    do {
+                        if (i >= (int)payload_size) break;
+                        sub_size = (sub_size << 7) | (payload[i] & 0x7F);
+                        size_bytes++;
+                    } while ((payload[i++] & 0x80) && size_bytes < 4);
+                    if (sub_size <= 0 || i + sub_size > (int)payload_size) break;
+
+                    if (sub_tag == 4) { // DecoderConfigDescriptor
+                        // Skip: objectType(1) + streamType/bufferSize(4) + maxBitrate(4) + avgBitrate(4)
+                        int j = i + 13;
+                        while (j < (int)payload_size && !found_dsi) {
+                            int dsi_tag = payload[j++];
+                            int dsi_size = 0;
+                            int dsi_size_bytes = 0;
+                            do {
+                                if (j >= (int)payload_size) break;
+                                dsi_size = (dsi_size << 7) | (payload[j] & 0x7F);
+                                dsi_size_bytes++;
+                            } while ((payload[j++] & 0x80) && dsi_size_bytes < 4);
+                            if (dsi_size <= 0 || j + dsi_size > (int)payload_size) break;
+                            if (dsi_tag == 5) { // DecoderSpecificInfo = AudioSpecificConfig
+                                track->audio_specific_config.assign(payload + j, payload + j + dsi_size);
+                                found_dsi = true;
+                                // Extraer la frecuencia de muestreo real del ASC
+                                // ASC layout: AOT(5 bits) | freq_idx(4 bits) | chan_cfg(4 bits) | ...
+                                if (dsi_size >= 2) {
+                                    int freq_idx = (payload[j + 0] >> 2) & 0x0F;
+                                    // Tabla de frecuencias estándar AAC
+                                    static const int aac_sample_rates[] = {
+                                        96000, 88200, 64000, 48000, 44100,
+                                        32000, 24000, 22050, 16000, 12000,
+                                        11025, 8000, 7350
+                                    };
+                                    if (freq_idx < 13) {
+                                        track->sample_rate = aac_sample_rates[freq_idx];
+                                    } else if (freq_idx == 15 && dsi_size >= 5) {
+                                        // Frecuencia explícita de 24 bits
+                                        track->sample_rate = ((payload[j + 1] & 0x0F) << 17) |
+                                                             (payload[j + 2] << 9) |
+                                                             (payload[j + 3] << 1) |
+                                                             ((payload[j + 4] >> 7) & 0x01);
+                                    }
+                                }
+                            }
+                            j += dsi_size;
+                        }
+                    }
+                    i += sub_size;
+                }
                 free(payload);
             }
         }
@@ -379,18 +433,9 @@ void mp4_read_audio_sample(struct mp4_file* mp4, struct mp4_track* track, int in
     struct file_stream* fs = mp4->fs;
     mp4_get_sample(track, index, sample);
     fs->set(sample.offset);
-    int sampling_frequency_index = GetSamplingFrequencyIndex(track->sample_rate);
-    int frame_size = sample.size + 7;
-    sample.data = (uint8_t*)malloc(frame_size);
-    sample.data[0] = 0xFF;
-	sample.data[1] = 0xF1; // 0xF9 (MPEG2)
-    sample.data[2] = 0x40 | (sampling_frequency_index << 2) | (track->num_channels >> 2);
-    sample.data[3] = ((track->num_channels&0x3)<<6) | ((frame_size) >> 11);
-    sample.data[4] = ((frame_size) >> 3)&0xFF;
-	sample.data[5] = (((frame_size) << 5)&0xFF) | 0x1F;
-	sample.data[6] = 0xFC;
-    fs->read(sample.data + 7, sample.size);
-    sample.size = frame_size;
+    // El audio MP4 es AAC raw (sin cabecera ADTS); se entrega tal cual.
+    sample.data = (uint8_t*)malloc(sample.size);
+    fs->read(sample.data, sample.size);
 }
 
 
