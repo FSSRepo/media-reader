@@ -246,13 +246,13 @@ int parse_mp4_box(file_stream* fs, int offset, int level, mp4_file* mp4, bool re
             if(tag == 3) {
                 uint8_t* payload = (uint8_t*)malloc(payload_size);
                 fs->read(payload, payload_size);
-                // Buscar el AudioSpecificConfig (tag 5) dentro del ES_Descriptor.
-                // El descriptor usa sintaxis MPEG-4: tag (1 byte) + size (1-4 bytes).
+                // Look for the AudioSpecificConfig (tag 5) inside the ES_Descriptor.
+                // The descriptor uses MPEG-4 syntax: tag (1 byte) + size (1-4 bytes).
                 int i = 3; // skip ES_ID (2) + flags (1)
                 bool found_dsi = false;
                 while (i < (int)payload_size && !found_dsi) {
                     int sub_tag = payload[i++];
-                    // Leer el tamaño (1-4 bytes, formato variable)
+                    // Read the size (1-4 bytes, variable format)
                     int sub_size = 0;
                     int size_bytes = 0;
                     do {
@@ -278,11 +278,11 @@ int parse_mp4_box(file_stream* fs, int offset, int level, mp4_file* mp4, bool re
                             if (dsi_tag == 5) { // DecoderSpecificInfo = AudioSpecificConfig
                                 track->audio_specific_config.assign(payload + j, payload + j + dsi_size);
                                 found_dsi = true;
-                                // Extraer la frecuencia de muestreo real del ASC
+                                // Extract the real sample rate from the ASC
                                 // ASC layout: AOT(5 bits) | freq_idx(4 bits) | chan_cfg(4 bits) | ...
                                 if (dsi_size >= 2) {
-                                    int freq_idx = (payload[j + 0] >> 2) & 0x0F;
-                                    // Tabla de frecuencias estándar AAC
+                                    int freq_idx = ((payload[j + 0] & 0x03) << 1) | ((payload[j + 1] >> 7) & 0x01);
+                                    // Standard AAC sample rate table
                                     static const int aac_sample_rates[] = {
                                         96000, 88200, 64000, 48000, 44100,
                                         32000, 24000, 22050, 16000, 12000,
@@ -291,7 +291,7 @@ int parse_mp4_box(file_stream* fs, int offset, int level, mp4_file* mp4, bool re
                                     if (freq_idx < 13) {
                                         track->sample_rate = aac_sample_rates[freq_idx];
                                     } else if (freq_idx == 15 && dsi_size >= 5) {
-                                        // Frecuencia explícita de 24 bits
+                                        // Explicit 24-bit sample rate
                                         track->sample_rate = ((payload[j + 1] & 0x0F) << 17) |
                                                              (payload[j + 2] << 9) |
                                                              (payload[j + 3] << 1) |
