@@ -23,17 +23,47 @@ extern "C" {
 #define MIN(a,b) a < b ? a : b
 #endif
 
-#ifdef MR_USE_OAL_PLAYER
-#include <AL/al.h>
-#include <AL/alc.h>
+#ifdef MR_USE_AUDIO_PLAYER
+#include "miniaudio.h"
 #endif
 
-#if defined(MR_USE_OAL_PLAYER) || defined(MR_USE_OGL_PLAYER)
+#if defined(MR_USE_AUDIO_PLAYER) || defined(MR_USE_OGL_PLAYER)
 #include <thread>
+#include <atomic>
 #endif
-#ifdef MR_USE_OAL_PLAYER
+#ifdef MR_USE_AUDIO_PLAYER
 #include <mutex>
 #include <condition_variable>
+#include <deque>
+#include <algorithm>
+#endif
+
+#if defined(MR_USE_AUDIO_PLAYER) && defined(MR_USE_OGL_PLAYER)
+struct audio_stream_state {
+    std::mutex mutex;
+    std::condition_variable changed;
+    std::deque<ma_int16> samples;
+    bool ready = false;
+    bool stop = false;
+    bool device_initialized = false;
+    ma_uint32 channels = 0;
+    ma_uint32 sample_rate = 0;
+    ma_device device;
+};
+
+static void audio_stream_callback(ma_device* device, void* output, const void*, ma_uint32 frames) {
+    audio_stream_state* state = static_cast<audio_stream_state*>(device->pUserData);
+    ma_int16* dst = static_cast<ma_int16*>(output);
+    const size_t count = static_cast<size_t>(frames) * state->channels;
+    std::lock_guard<std::mutex> lock(state->mutex);
+    size_t available = std::min(count, state->samples.size());
+    for (size_t i = 0; i < available; ++i) {
+        dst[i] = state->samples.front();
+        state->samples.pop_front();
+    }
+    std::fill(dst + available, dst + count, 0);
+    state->changed.notify_one();
+}
 #endif
 
 // libde265
@@ -101,7 +131,7 @@ static int decode_write_frame(FILE *file, const char* filename, AVCodecContext *
 		if (got_frame) {
 			if (*frame_index >= write_start) {
 				if(save_png) {
-					yuv420rgb_multi_buffer(frame->data[0], frame->data[1], frame->data[2], rgb_buffer, frame->width, frame->height);
+					yuv420rgb_strided(frame->data[0], frame->data[1], frame->data[2], frame->linesize[0], frame->linesize[1], rgb_buffer, frame->width, frame->height);
 					snprintf(png_filename, sizeof(png_filename), filename, *frame_index);
 					stbi_write_png(png_filename, frame->width, frame->height, 3, (const unsigned char *) rgb_buffer, 0, "None");
 				} else {
@@ -271,11 +301,10 @@ void decode_and_save(mp4_file* mp4, int argc, char* argv[], bool save_png) {
 					printf("decoding %d\n", frame_index);
 					if(frame_index >= frame_start) {
 						if(save_png) {
-							int stride;
-							yuv420rgb_multi_buffer(
-								de265_get_image_plane(img, 0, &stride),
-								de265_get_image_plane(img, 1, &stride),
-								de265_get_image_plane(img, 2, &stride), rgb_buffer, video_track->width, video_track->height);
+							int stride, stride_uv;
+							const uint8_t* plane_y = de265_get_image_plane(img, 0, &stride);
+							const uint8_t* plane_u = de265_get_image_plane(img, 1, &stride_uv);
+							yuv420rgb_strided(plane_y, plane_u, de265_get_image_plane(img, 2, &stride_uv), stride, stride_uv, rgb_buffer, video_track->width, video_track->height);
 							snprintf(png_filename, sizeof(png_filename), argv[3], frame_index);
 							stbi_write_png(png_filename, video_track->width, video_track->height, 3, (const unsigned char *) rgb_buffer, 0, "None");
 						} else {
@@ -303,7 +332,7 @@ void decode_and_save(mp4_file* mp4, int argc, char* argv[], bool save_png) {
 void print_usage() {
 	printf("\nusage: main <mp4 file path> <options>\n\noptions:\n\n	-d <output file> <frame count> <frame start> : decode to yuv file\n\n	-e <output file> : extract bitstream data\n\n	-c <output file (string formatted)> <frame count> <frame start> : extract as .png images\n\n		example: main test.mp4 -c out-%%d.png 10 0\n\n");
 #ifdef MR_USE_OGL_PLAYER
-	printf("	-p : play mp4 as an opengl texture (only h.264) / mp3 with openal\n");
+	printf("	-p : play mp4 as an opengl texture (only h.264) / mp3 with miniaudio\n");
 #endif
 }
 
@@ -345,10 +374,10 @@ void glfwError(int i, const char* des) {
 }
 
 struct video_state {
-	int video_frame = 0;
-	bool load_new_frame = false;
+	std::atomic<int> video_frame{0};
+	std::atomic<bool> load_new_frame{false};
 	uint8_t* frame_data = NULL;
-	bool kill = false;
+	std::atomic<bool> kill{false};
 
 	void wait() {
 		while(true) {
@@ -405,14 +434,13 @@ void mp4_play(mp4_file* mp4, const char* filepath) {
 	GLuint program;
 	GLuint vbo, tex = -1;
 
-#ifdef MR_USE_OAL_PLAYER
+#ifdef MR_USE_AUDIO_PLAYER
 	mp4_track* audio_track = mp4_get_track(mp4, AUDIO_TRACK);
 	bool have_audio = (audio_track != NULL);
 	if(!have_audio) {
 		fprintf(stderr, "missing audio track; will play video only\n");
 	}
-	ALuint audio_src = 0;
-	ALuint audio_buff = 0;
+	audio_stream_state audio_state;
 #else
 	bool have_audio = false;
 #endif
@@ -495,7 +523,7 @@ void mp4_play(mp4_file* mp4, const char* filepath) {
 					} else if(step == 1) {
 						avcodec_decode_video2(codec_ctx, frame, &got_frame, &packet);
 						if(got_frame) {
-							yuv420rgb_multi_buffer(frame->data[0], frame->data[1], frame->data[2], v_state.frame_data, video_track->width, video_track->height);
+							yuv420rgb_strided(frame->data[0], frame->data[1], frame->data[2], frame->linesize[0], frame->linesize[1], v_state.frame_data, video_track->width, video_track->height);
 							v_state.load_new_frame = true;
 							step = 2;
 							mp4_free_sample(sample);
@@ -554,11 +582,10 @@ void mp4_play(mp4_file* mp4, const char* filepath) {
 							}
 							const de265_image *img = de265_get_next_picture(ctx);
 							if (img) {
-								int stride;
-									yuv420rgb_multi_buffer(
-										de265_get_image_plane(img, 0, &stride),
-										de265_get_image_plane(img, 1, &stride),
-										de265_get_image_plane(img, 2, &stride), v_state.frame_data, video_track->width, video_track->height);
+								int stride, stride_uv;
+									const uint8_t* plane_y = de265_get_image_plane(img, 0, &stride);
+									const uint8_t* plane_u = de265_get_image_plane(img, 1, &stride_uv);
+									yuv420rgb_strided(plane_y, plane_u, de265_get_image_plane(img, 2, &stride_uv), stride, stride_uv, v_state.frame_data, video_track->width, video_track->height);
 								step = 2;
 								v_state.load_new_frame = true;
 							} else {
@@ -581,109 +608,92 @@ void mp4_play(mp4_file* mp4, const char* filepath) {
 	float segs_per_frame = 1.0f / video_track->fps;
 	char windowName[64];
 
-	v_state.wait();
-
-	// Start audio in a thread as soon as the first frame is ready to render
-#ifdef MR_USE_OAL_PLAYER
-	std::thread audio_th;
-	bool audio_playing = false;
-	std::mutex audio_mtx;
-	std::condition_variable audio_cv;
-	if(have_audio) {
-		audio_th = std::thread([filepath, audio_track, &audio_src, &audio_buff, &audio_playing, &audio_mtx, &audio_cv]() {
-			// Open a separate file instance to avoid interfering with the video thread
-			mp4_file* audio_mp4 = mp4_open(filepath, false);
-			ALCdevice* dev = alcOpenDevice(NULL);
-			if(!dev) {
-				printf("audio: failed to open device, continuing without audio\n");
-				return;
-			}
-			ALCcontext *ctx = alcCreateContext(dev, NULL);
-			if(!alcMakeContextCurrent(ctx)) {
-				printf("audio: failed to make context, continuing without audio\n");
-				alcCloseDevice(dev);
-				return;
-			}
-			// MP4 audio is raw AAC: use TT_MP4_RAW with AudioSpecificConfig.
-			HANDLE_AACDECODER aac_dec = aacDecoder_Open(TT_MP4_RAW, 1);
-			if (!aac_dec) {
-				fprintf(stderr, "aacDecoder_Open failed\n");
-				return;
-			}
-			if (!audio_track->audio_specific_config.empty()) {
-				UCHAR* asc = const_cast<UCHAR*>(audio_track->audio_specific_config.data());
-				UINT asc_size = static_cast<UINT>(audio_track->audio_specific_config.size());
-				if (aacDecoder_ConfigRaw(aac_dec, &asc, &asc_size) != AAC_DEC_OK) {
-					fprintf(stderr, "aacDecoder_ConfigRaw failed\n");
-				}
-			}
-			std::vector<short> pcm_data;
-		INT_PCM pcm_out[PCM_BUFFER_SIZE];
-		int decoded_samplerate = 0;
-		int decoded_channels = 0;
-		for(int s = 0; s < audio_track->sample_count; s++) {
-				mp4_sample smpl;
-				mp4_read_audio_sample(audio_mp4, audio_track, s, smpl);
-				size_t bytes_fed = 0;
-				bool fill_ok = true;
-				while (bytes_fed < smpl.size) {
-					UCHAR *in_ptr = smpl.data + bytes_fed;
-					UINT bytes_valid = static_cast<UINT>(smpl.size - bytes_fed);
-					if (aacDecoder_Fill(aac_dec, &in_ptr, &bytes_valid, &bytes_valid) != AAC_DEC_OK) {
-						fprintf(stderr, "aacDecoder_Fill error (sample %d)\n", s);
-						fill_ok = false;
-						break;
-					}
-					bytes_fed = smpl.size - bytes_valid;
-				}
-				if (fill_ok) {
-				AAC_DECODER_ERROR err = aacDecoder_DecodeFrame(aac_dec, pcm_out, PCM_BUFFER_SIZE, 0);
-				if (err == AAC_DEC_OK) {
-					CStreamInfo *info = aacDecoder_GetStreamInfo(aac_dec);
-					if (info && info->sampleRate > 0) {
-						decoded_samplerate = info->sampleRate;
-						decoded_channels = info->numChannels;
-						for(int i = 0; i < (info->frameSize * info->numChannels); i ++) {
-							pcm_data.push_back(pcm_out[i]);
-						}
-					}
-				}
-			}
-			free(smpl.data);
-		}
-		aacDecoder_Close(aac_dec);
-
-		// Use the actual sample rate / channels reported by the decoder
-		int samplerate = decoded_samplerate > 0 ? decoded_samplerate : audio_track->sample_rate;
-		bool stereo = decoded_channels > 0 ? (decoded_channels == 2) : (audio_track->num_channels == 2);
-		printf("playing in OpenAL at %d Hz\n", samplerate);
-			printf("audio device: %s\n", alGetString(AL_VERSION));
-
-			alGenBuffers(1, &audio_buff);
-			alBufferData(audio_buff, stereo ? AL_FORMAT_STEREO16 : AL_FORMAT_MONO16, pcm_data.data(), static_cast<ALsizei>(pcm_data.size() * 2), samplerate);
-
-			alGenSources(1, &audio_src);
-			alSource3f(audio_src, AL_POSITION, 0.0f, 0.0f, 0.0f);
-			alSource3f(audio_src, AL_VELOCITY, 0.0f, 0.0f, 0.0f);
-			alSource3f(audio_src, AL_DIRECTION, 0.0f, 0.0f, 0.0f);
-			alSourcei(audio_src, AL_BUFFER, audio_buff);
-			alSourcePlay(audio_src);
-			// Signal that audio is already playing
-			{
-				std::lock_guard<std::mutex> lk(audio_mtx);
-				audio_playing = true;
-			}
-			audio_cv.notify_all();
-		});
-	}
+#ifdef MR_USE_AUDIO_PLAYER
+    std::thread audio_th;
+    if (have_audio) {
+        audio_th = std::thread([filepath, &audio_state]() {
+            mp4_file* audio_mp4 = mp4_open(filepath, false);
+            mp4_track* track = mp4_get_track(audio_mp4, AUDIO_TRACK);
+            HANDLE_AACDECODER decoder = aacDecoder_Open(TT_MP4_RAW, 1);
+            bool configured = decoder && track && !track->audio_specific_config.empty();
+            if (configured) {
+                UCHAR* asc = track->audio_specific_config.data();
+                UINT size = static_cast<UINT>(track->audio_specific_config.size());
+                configured = aacDecoder_ConfigRaw(decoder, &asc, &size) == AAC_DEC_OK;
+            }
+            if (!configured) fprintf(stderr, "audio: failed to configure AAC decoder\n");
+            INT_PCM pcm[PCM_BUFFER_SIZE];
+            for (int index = 0; configured && index < track->sample_count; ++index) {
+                {
+                    std::lock_guard<std::mutex> lock(audio_state.mutex);
+                    if (audio_state.stop) break;
+                }
+                mp4_sample sample;
+                mp4_read_audio_sample(audio_mp4, track, index, sample);
+                UCHAR* input = sample.data;
+                UINT size = static_cast<UINT>(sample.size);
+                UINT valid = size;
+                AAC_DECODER_ERROR result = aacDecoder_Fill(decoder, &input, &size, &valid);
+                free(sample.data);
+                if (result != AAC_DEC_OK || valid != 0) continue;
+                if (aacDecoder_DecodeFrame(decoder, pcm, PCM_BUFFER_SIZE, 0) != AAC_DEC_OK) continue;
+                CStreamInfo* info = aacDecoder_GetStreamInfo(decoder);
+                if (!info || info->sampleRate <= 0 || info->numChannels <= 0) continue;
+                if (!audio_state.device_initialized) {
+                    audio_state.channels = info->numChannels;
+                    audio_state.sample_rate = info->sampleRate;
+                    ma_device_config config = ma_device_config_init(ma_device_type_playback);
+                    config.playback.format = ma_format_s16;
+                    config.playback.channels = audio_state.channels;
+                    config.sampleRate = audio_state.sample_rate;
+                    config.dataCallback = audio_stream_callback;
+                    config.pUserData = &audio_state;
+                    if (ma_device_init(NULL, &config, &audio_state.device) != MA_SUCCESS) {
+                        fprintf(stderr, "audio: failed to initialize device\n");
+                        break;
+                    }
+                    audio_state.device_initialized = true;
+                }
+                if (info->numChannels != static_cast<int>(audio_state.channels) ||
+                    info->sampleRate != static_cast<int>(audio_state.sample_rate)) {
+                    fprintf(stderr, "audio: AAC format changed during playback\n");
+                    break;
+                }
+                std::unique_lock<std::mutex> lock(audio_state.mutex);
+                const size_t max_samples = static_cast<size_t>(audio_state.sample_rate) * audio_state.channels;
+                audio_state.changed.wait(lock, [&]() { return audio_state.stop || audio_state.samples.size() < max_samples; });
+                if (audio_state.stop) break;
+                audio_state.samples.insert(audio_state.samples.end(), pcm, pcm + info->frameSize * info->numChannels);
+                if (!audio_state.ready && audio_state.samples.size() >= max_samples / 4) {
+                    audio_state.ready = true;
+                    audio_state.changed.notify_all();
+                }
+            }
+            if (decoder) aacDecoder_Close(decoder);
+            fclose(audio_mp4->fs->file);
+            delete[] audio_mp4->fs->temp_buffer;
+            delete audio_mp4->fs;
+            delete audio_mp4;
+            {
+                std::lock_guard<std::mutex> lock(audio_state.mutex);
+                audio_state.ready = true;
+            }
+            audio_state.changed.notify_all();
+        });
+    }
 #endif
 
-	// Video waits for audio to be playing before starting in sync
-#ifdef MR_USE_OAL_PLAYER
-	if(have_audio) {
-		std::unique_lock<std::mutex> lk(audio_mtx);
-		audio_cv.wait(lk, [&audio_playing]{ return audio_playing; });
-	}
+    // Decode the first video frame and prebuffer audio concurrently.
+    v_state.wait();
+#ifdef MR_USE_AUDIO_PLAYER
+    if (have_audio) {
+        std::unique_lock<std::mutex> lock(audio_state.mutex);
+        audio_state.changed.wait(lock, [&]() { return audio_state.ready; });
+        bool start_audio = audio_state.device_initialized && !audio_state.samples.empty();
+        lock.unlock();
+        if (start_audio && ma_device_start(&audio_state.device) != MA_SUCCESS)
+            fprintf(stderr, "audio: failed to start device\n");
+    }
 #endif
 
 	// Reset the clock so the first dt does not include the audio wait time
@@ -748,8 +758,14 @@ void mp4_play(mp4_file* mp4, const char* filepath) {
     glfwTerminate();
 
 	th.join();
-#ifdef MR_USE_OAL_PLAYER
-	if(audio_th.joinable()) audio_th.join();
+#ifdef MR_USE_AUDIO_PLAYER
+    {
+        std::lock_guard<std::mutex> lock(audio_state.mutex);
+        audio_state.stop = true;
+    }
+    audio_state.changed.notify_all();
+    if (audio_th.joinable()) audio_th.join();
+    if (audio_state.device_initialized) ma_device_uninit(&audio_state.device);
 #endif
 #else
 	printf("mp4 player not available, if you have glfw, just compile with -DMR_OGL_PLAYER=ON");
@@ -757,61 +773,34 @@ void mp4_play(mp4_file* mp4, const char* filepath) {
 }
 
 void mp3_play(const char* path) {
-#ifdef MR_USE_OAL_PLAYER
-	ALCdevice* dev = alcOpenDevice(NULL);
-	if(!dev) {
-		printf("audio: failed to open device");
-		return;
-	}
-	ALCcontext *ctx = alcCreateContext(dev, NULL);
-	if(!alcMakeContextCurrent(ctx)) {
-		printf("audio: failed to make context");
-		alcCloseDevice(dev);
-		return;
-	}
-
-	printf("decoding mp3\n");
-	audio_data* aud = mp3_open(path);
-
-	printf("playing in OpenAL\n");
-
-	printf("audio device: %s\n", alGetString(AL_VERSION));
-
-	ALuint buff;
-	alGenBuffers(1, &buff);
-	alBufferData(buff, aud->stereo ? AL_FORMAT_STEREO16 : AL_FORMAT_MONO16, aud->data, aud->data_size, aud->samplerate);
-
-	ALuint src;
-	alGenSources(1, &src);
-	alSource3f(src, AL_POSITION, 0.0f, 0.0f, 0.0f);
-	alSource3f(src, AL_VELOCITY, 0.0f, 0.0f, 0.0f);
-	alSource3f(src, AL_DIRECTION, 0.0f, 0.0f, 0.0f);
-	alSourcei(src, AL_BUFFER, buff);
-	alSourcePlay(src);
-
-	ALint state;
-	do {
-		alGetSourcei(src, AL_SOURCE_STATE, &state);
-		float time;
-		alGetSourcef(src, AL_SEC_OFFSET, &time);
-		printf("\r %d:%s%d ", (int)(time/60.0f), (int)(time) % 60 < 10 ? "0": "", (int)(time) % 60);
-		std::this_thread::sleep_for(std::chrono::milliseconds(900));
-	} while(state == AL_PLAYING);
-
-	alDeleteSources(1, &src);
-	alDeleteBuffers(1, &buff);
-	alcMakeContextCurrent(NULL);
-	alcDestroyContext(ctx);
-	alcCloseDevice(dev);
-
-	free(aud->data);
+#ifdef MR_USE_AUDIO_PLAYER
+    ma_engine engine;
+    if (ma_engine_init(NULL, &engine) != MA_SUCCESS) {
+        fprintf(stderr, "audio: failed to initialize device\n");
+        return;
+    }
+    ma_sound sound;
+    if (ma_sound_init_from_file(&engine, path, 0, NULL, NULL, &sound) != MA_SUCCESS) {
+        fprintf(stderr, "audio: failed to open %s\n", path);
+        ma_engine_uninit(&engine);
+        return;
+    }
+    if (ma_sound_start(&sound) == MA_SUCCESS) {
+        while (ma_sound_is_playing(&sound)) {
+            float time = 0;
+            ma_sound_get_cursor_in_seconds(&sound, &time);
+            printf("\r %d:%02d ", (int)(time / 60), (int)time % 60);
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        }
+    }
+    ma_sound_uninit(&sound);
+    ma_engine_uninit(&engine);
 #else
-	printf("mp3 player not available, if you have openal, just compile with -DMR_OAL_PLAYER=ON");
+    printf("mp3 player not available; compile with -DMR_AUDIO_PLAYER=ON\n");
 #endif
 }
 
 int main(int argc, char* argv[]) {
-	//mp3_open("D:\\proyectos\\OpenMP3-master\\build\\bin\\Release\\test.mp3");
     if (argc > 1) {
 		int path_len = strlen(argv[1]);
 		if(path_len > 4 && strcmp(argv[1] + path_len - 4, ".mp4") == 0) {
@@ -912,7 +901,8 @@ int main(int argc, char* argv[]) {
 					mp3_play(argv[1]);
 				} else if(op == "-w" && argc == 3) {
 					audio_data* aud = mp3_open(argv[1]);
-					wav_write(aud);
+                        if (aud) { wav_write(aud); free(aud->data); delete aud; }
+                        else fprintf(stderr, "Could not decode %s\n", argv[1]);
 				} else {
 					print_usage();
 				}

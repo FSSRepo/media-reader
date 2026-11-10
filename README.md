@@ -8,7 +8,7 @@ Lightweight C/C++ library for parsing media files. Extract video frames as RGB b
 - **MP3 Audio Decoding**: Decode MP3 files to raw PCM audio data
 - **RGB Conversion**: Convert YUV420 frames to RGB format
 - **AAC Audio Support**: Decode AAC audio tracks from MP4 files via FDK-AAC
-- **Optional Players**: OpenGL video player and OpenAL audio player (example builds)
+- **Optional Players**: OpenGL video player and miniaudio audio player (example builds)
 - **Single Header Image Output**: Save frames as PNG via stb_image_write
 
 ## Supported Formats
@@ -34,13 +34,13 @@ cmake --build . --config Release
 |--------|---------|-------------|
 | `MR_BUILD_EXAMPLES` | `ON` (standalone) | Build example applications |
 | `MR_OGL_PLAYER` | `OFF` | Build with OpenGL video player (requires GLFW3 + OpenGL) |
-| `MR_OAL_PLAYER` | `OFF` | Build with OpenAL audio player (requires OpenAL) |
+| `MR_AUDIO_PLAYER` | `OFF` | Build with miniaudio audio player |
 | `MR_BUILD_SHARED_LIBS` | `OFF` | Build media-reader as a shared library |
 
 ### Example with all options
 
 ```bash
-cmake .. -DMR_BUILD_EXAMPLES=ON -DMR_OGL_PLAYER=ON -DMR_OAL_PLAYER=ON
+cmake .. -DMR_BUILD_EXAMPLES=ON -DMR_OGL_PLAYER=ON -DMR_AUDIO_PLAYER=ON
 cmake --build . --config Release
 ```
 
@@ -90,7 +90,7 @@ All third-party dependencies are included as source in the `external/` folder:
 | libde265 | [libde265](https://github.com/strukturag/libde265) | H.265/HEVC video decoding |
 | stb_image_write | [stb](https://github.com/nothings/stb) | PNG image output |
 | FDK AAC | [fdk-aac](https://github.com/mstorsjo/fdk-aac) | AAC audio decoding |
-| OpenMP3 | [OpenMP3](https://github.com/audioboy77/OpenMP3) | MP3 audio decoding |
+| miniaudio | [miniaudio](https://miniaud.io/) | MP3 decoding and audio playback |
 
 ## Limitations
 

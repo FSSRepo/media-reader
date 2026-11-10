@@ -6,11 +6,11 @@ int clamp(int x, int min, int max) {
 }
 
 
-// yuv I420 -> RGB888
-void yuv420rgb_multi_buffer(const uint8_t* y_p, const uint8_t* u_p, const uint8_t* v_p, uint8_t* rgb, int width, int height) {
-    // yuv I420 layout [y: [width*height], u: [width/2 * height/2], v: [width/2 * height/2]]
+// yuv I420 -> RGB888. y_stride and uv_stride are the bytes between two rows of the Y plane and of the U / V planes: a
+// decoder pads its rows (AVFrame::linesize), so they are not always width and width / 2.
+void yuv420rgb_strided(const uint8_t* y_p, const uint8_t* u_p, const uint8_t* v_p, int y_stride, int uv_stride, uint8_t* rgb, int width, int height) {
     // u, v need upsample (bilinear?)
-    int width_half = (width / 2), height_half = (height / 2);
+    int width_half = (width / 2);
     int uv_x = 1;
 
     float mat[9] = {
@@ -20,14 +20,14 @@ void yuv420rgb_multi_buffer(const uint8_t* y_p, const uint8_t* u_p, const uint8_
     
     int uv_offset = 128;
     int rgb_offset = 0;
-    const uint8_t* u_p1 = u_p + width_half;
-    const uint8_t* v_p1 = v_p + width_half;
+    const uint8_t* u_p1 = u_p + uv_stride;
+    const uint8_t* v_p1 = v_p + uv_stride;
 
     for(int y = 0; y < height; y++) {
         bool y0 = (y - 1) % 2 == 0;
 
         for(int x = 0; x < width; x++) {
-            int lum = y_p[y * width + x];
+            int lum = y_p[y * y_stride + x];
             int u = 0;
             int v = 0;
             bool x0 = (x - 1) % 2 == 0;
@@ -89,10 +89,10 @@ void yuv420rgb_multi_buffer(const uint8_t* y_p, const uint8_t* u_p, const uint8_
                     } else {
                         u = (u_p[end] + u_p1[end] * 3) / 4;
                         v = (v_p[end] + v_p1[end] * 3) / 4;
-                        u_p += width_half;
-                        v_p += width_half;
-                        u_p1 += width_half;
-                        v_p1 += width_half;
+                        u_p += uv_stride;
+                        v_p += uv_stride;
+                        u_p1 += uv_stride;
+                        v_p1 += uv_stride;
                     }
                 }
             }
@@ -110,6 +110,11 @@ void yuv420rgb_multi_buffer(const uint8_t* y_p, const uint8_t* u_p, const uint8_
             rgb_offset += 3;
         }
     }
+}
+
+// yuv I420 with tightly packed planes -> RGB888
+void yuv420rgb_multi_buffer(const uint8_t* y_p, const uint8_t* u_p, const uint8_t* v_p, uint8_t* rgb, int width, int height) {
+    yuv420rgb_strided(y_p, u_p, v_p, width, width / 2, rgb, width, height);
 }
 
 // yuv I420 -> RGB888

@@ -24,7 +24,7 @@ endif()
 # general
 option(MR_BUILD_EXAMPLES             "mr: build examples" ${MR_STANDALONE})
 option(MR_OGL_PLAYER                 "mr: build with OpenGL video player" OFF)
-option(MR_OAL_PLAYER                 "mr: build with OpenAL audio player" OFF)
+option(MR_AUDIO_PLAYER               "mr: build with miniaudio audio player" OFF)
 option(MR_BUILD_SHARED_LIBS          "mr: build shared libs" OFF)
 
 set(MR_LIB media-reader)
@@ -34,7 +34,6 @@ include_directories(include external src)
 file(GLOB MR_LIB_SOURCES
     "include/*.h"
     "src/*.cpp"
-    "src/mp3/*.cpp"
 )
 
 # we can get only one share lib
@@ -58,19 +57,14 @@ add_subdirectory(external/ffmpeg)
 # h.265 encoder, decoder from https://github.com/strukturag/libde265
 add_subdirectory(external/libde265)
 
-# mp3 decoder from https://github.com/audioboy77/OpenMP3
-add_subdirectory(external/openmp3)
-
 # mp3 decoder from https://github.com/mstorsjo/fdk-aac
 add_subdirectory(external/libaac)
 
 set(ADDITIONAL_LIBDE265_INCLUDES external/libde265/extra)
 
-target_link_libraries(${MR_LIB} PUBLIC openmp3)
 target_include_directories(${MR_LIB} PUBLIC
     .
     external/ffmpeg
-    external/openmp3
     external/libde265/libde265
     external/libaac/include
     ${ADDITIONAL_LIBDE265_INCLUDES})
